@@ -69,3 +69,47 @@ pytest -q -m agent_target
 - Pydantic
 - pytest
 - httpx
+
+## 🚀 Stage 2A 演示流程
+Stage 2A 实现了极简Demo UI + Incident Watcher本地闭环，无需接入外部服务即可演示完整异常监控链路。
+
+### 1. 启动Demo服务
+```bash
+python scripts/run_demo_server.py
+```
+服务将运行在 http://127.0.0.1:8000
+
+### 2. 打开浏览器访问Demo UI
+访问 http://127.0.0.1:8000/
+页面提供三个功能按钮：
+- 健康检查：测试服务是否正常
+- 查询正常用户：查询u_1001用户信息（返回200）
+- 触发 Bug：访问不存在的用户，触发预埋的TypeError（返回500）
+
+### 3. 触发异常
+点击页面上的「触发 Bug」按钮，服务会返回500错误，同时生成完整Traceback日志。
+
+### 4. 扫描日志生成Incident
+另开终端执行：
+```bash
+python scripts/watch_once.py
+```
+如果发现新的异常，会输出Incident ID、错误类型、位置等信息；如果没有新异常则显示"No new incident"。
+
+> 同一个错误只会生成一次Incident，基于指纹自动去重。
+
+### 5. 查看Incident记录
+所有异常记录保存在：
+```
+autorepair/records/incidents.jsonl
+```
+一行一个JSON格式的Incident对象。
+
+### 6. 飞书通知（可选）
+如果在`.env`中配置了完整的飞书参数（FEISHU_APP_ID、FEISHU_APP_SECRET、FEISHU_CHAT_ID），扫描到新异常时会自动发送飞书告警卡片；配置不完整时会在控制台打印模拟卡片内容。
+
+### 一键演示脚本
+```bash
+python scripts/run_stage2_demo.py
+```
+按照脚本提示操作即可完成完整演示流程。

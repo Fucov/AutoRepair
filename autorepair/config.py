@@ -8,6 +8,7 @@ LOG_PATH = PROJECT_ROOT / "demo_service" / "logs" / "app.log"
 FEISHU_API_BASE_URL = os.getenv("FEISHU_API_BASE_URL", "https://open.feishu.cn/open-apis")
 FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "")
 FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
+FEISHU_CHAT_ID = os.getenv("FEISHU_CHAT_ID", "")
 ARK_API_KEY = os.getenv("ARK_API_KEY", "")
 ARK_MODEL_REPAIR = os.getenv("ARK_MODEL_REPAIR", "")
 ARK_MODEL_SUMMARY = os.getenv("ARK_MODEL_SUMMARY", "")

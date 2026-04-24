@@ -9,12 +9,11 @@ class Incident(BaseModel):
     incident_id: str
     source: IncidentSource
     service: str
-    error_type: str | None = None
-    traceback: str
-    suspected_file: str | None = None
-    line_no: int | None = None
-    fingerprint: str | None = None
     status: str = "NEW"
+    error_summary: ErrorSummary
+    raw_traceback: str
+    created_at: str
+    updated_at: str
 
 
 class ErrorSummary(BaseModel):
