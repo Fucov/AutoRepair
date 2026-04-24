@@ -14,6 +14,10 @@ class Incident(BaseModel):
     raw_traceback: str
     created_at: str
     updated_at: str
+    source_ref: str | None = None  # 本地日志路径或GitHub Issue URL
+    issue_number: int | None = None
+    issue_url: str | None = None
+    scenario_id: str | None = None  # 关联的Bug场景ID
 
 
 class ErrorSummary(BaseModel):

@@ -16,6 +16,100 @@ logger = logging.getLogger(__name__)
 def build_incident_card_payload(incident: Incident) -> Dict:
     """构造飞书消息卡片Payload"""
     summary = incident.error_summary
+    elements = []
+    
+    # 基础信息
+    base_fields = [
+        {
+            "is_short": True,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**来源**\n{incident.source}"
+            }
+        },
+        {
+            "is_short": True,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**服务名称**\n{incident.service}"
+            }
+        },
+        {
+            "is_short": True,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**状态**\n{incident.status}"
+            }
+        },
+        {
+            "is_short": True,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**错误类型**\n{summary.error_type}"
+            }
+        },
+        {
+            "is_short": True,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**错误位置**\n{summary.suspected_file}:{summary.line_no}"
+            }
+        },
+        {
+            "is_short": False,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**错误信息**\n{summary.message}"
+            }
+        }
+    ]
+    
+    # 场景信息
+    if incident.scenario_id:
+        base_fields.append({
+            "is_short": True,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**场景**\n{incident.scenario_id}"
+            }
+        })
+    
+    # Issue链接
+    if incident.issue_url:
+        base_fields.append({
+            "is_short": False,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**Issue链接**\n[{incident.issue_url}]({incident.issue_url})"
+            }
+        })
+    
+    elements.append({
+        "tag": "div",
+        "fields": base_fields
+    })
+    
+    # 分割线
+    elements.append({"tag": "hr"})
+    
+    # 阶段说明
+    elements.append({
+        "tag": "div",
+        "text": {
+            "tag": "lark_md",
+            "content": "ℹ️ **当前阶段**：已接收问题，等待 Agent 分析与自动修复"
+        }
+    })
+    
+    # 创建时间
+    elements.append({
+        "tag": "div",
+        "text": {
+            "tag": "lark_md",
+            "content": f"**创建时间**\n{incident.created_at}"
+        }
+    })
+    
     return {
         "msg_type": "interactive",
         "card": {
@@ -26,65 +120,7 @@ def build_incident_card_payload(incident: Incident) -> Dict:
                 },
                 "template": "red"
             },
-            "elements": [
-                {
-                    "tag": "div",
-                    "fields": [
-                        {
-                            "is_short": True,
-                            "text": {
-                                "tag": "lark_md",
-                                "content": f"**服务名称**\n{incident.service}"
-                            }
-                        },
-                        {
-                            "is_short": True,
-                            "text": {
-                                "tag": "lark_md",
-                                "content": f"**状态**\n{incident.status}"
-                            }
-                        },
-                        {
-                            "is_short": True,
-                            "text": {
-                                "tag": "lark_md",
-                                "content": f"**错误类型**\n{summary.error_type}"
-                            }
-                        },
-                        {
-                            "is_short": True,
-                            "text": {
-                                "tag": "lark_md",
-                                "content": f"**错误位置**\n{summary.suspected_file}:{summary.line_no}"
-                            }
-                        },
-                        {
-                            "is_short": False,
-                            "text": {
-                                "tag": "lark_md",
-                                "content": f"**错误信息**\n{summary.message}"
-                            }
-                        },
-                        {
-                            "is_short": False,
-                            "text": {
-                                "tag": "lark_md",
-                                "content": f"**指纹**\n{summary.fingerprint}"
-                            }
-                        }
-                    ]
-                },
-                {
-                    "tag": "hr"
-                },
-                {
-                    "tag": "div",
-                    "text": {
-                        "tag": "lark_md",
-                        "content": f"**创建时间**\n{incident.created_at}"
-                    }
-                }
-            ]
+            "elements": elements
         }
     }
 
@@ -102,13 +138,18 @@ def send_incident_card(incident: Incident) -> None:
         print("📧 Mock Feishu Card (配置不完整，仅模拟发送)")
         print("=" * 60)
         print(f"🚨 服务异常告警 {incident.incident_id}")
+        print(f"来源: {incident.source}")
         print(f"服务名称: {incident.service}")
         print(f"状态: {incident.status}")
+        if incident.scenario_id:
+            print(f"场景: {incident.scenario_id}")
         print(f"错误类型: {summary.error_type}")
         print(f"错误位置: {summary.suspected_file}:{summary.line_no}")
         print(f"错误信息: {summary.message}")
-        print(f"指纹: {summary.fingerprint}")
+        if incident.issue_url:
+            print(f"Issue链接: {incident.issue_url}")
         print(f"创建时间: {incident.created_at}")
+        print("ℹ️ 当前阶段：已接收问题，等待 Agent 分析与自动修复")
         print("=" * 60 + "\n")
         return
 

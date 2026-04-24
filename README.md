@@ -70,26 +70,32 @@ pytest -q -m agent_target
 - pytest
 - httpx
 
-## 🚀 Stage 2A 演示流程
-Stage 2A 实现了极简Demo UI + Incident Watcher本地闭环，无需接入外部服务即可演示完整异常监控链路。
+## 🚀 Stage 2B 演示流程
+Stage 2B 支持两类问题入口：本地运行时异常 + GitHub Issue Bug反馈，实现完整的异常发现→生成Incident→通知闭环。
 
-### 1. 启动Demo服务
+---
+
+### 🔹 路线 A：本地日志触发
+适合演示服务运行时异常场景
+
+#### 1. 启动Demo服务
 ```bash
 python scripts/run_demo_server.py
 ```
 服务将运行在 http://127.0.0.1:8000
 
-### 2. 打开浏览器访问Demo UI
+#### 2. 打开浏览器访问业务控制台
 访问 http://127.0.0.1:8000/
-页面提供三个功能按钮：
-- 健康检查：测试服务是否正常
-- 查询正常用户：查询u_1001用户信息（返回200）
-- 触发 Bug：访问不存在的用户，触发预埋的TypeError（返回500）
+页面提供四个业务功能按钮：
+- 健康检查：查询服务运行状态
+- 查询正常用户画像：查询用户ID u_1001 的信息（返回200）
+- 查询缺失用户画像：Demo: 会触发 TypeError 异常（返回500）
+- 提交异常订单：Demo: 会触发 ZeroDivisionError 异常（返回500）
 
-### 3. 触发异常
-点击页面上的「触发 Bug」按钮，服务会返回500错误，同时生成完整Traceback日志。
+#### 3. 触发异常
+点击「查询缺失用户画像」或「提交异常订单」按钮，服务会返回500错误，同时生成完整Traceback日志。
 
-### 4. 扫描日志生成Incident
+#### 4. 扫描日志生成Incident
 另开终端执行：
 ```bash
 python scripts/watch_once.py
@@ -98,18 +104,51 @@ python scripts/watch_once.py
 
 > 同一个错误只会生成一次Incident，基于指纹自动去重。
 
-### 5. 查看Incident记录
+---
+
+### 🔹 路线 B：GitHub Issue 触发
+适合演示外部Bug反馈场景
+
+#### 1. 创建演示Bug Issue
+```bash
+# 可选scenario_id: user-missing-profile / order-zero-division
+python scripts/create_demo_issue.py order-zero-division
+```
+- 配置完整时会真实创建GitHub Issue
+- 配置缺失时会在控制台打印Mock Issue内容
+
+#### 2. 扫描GitHub Issue
+```bash
+python scripts/watch_github_issues_once.py
+```
+- 自动识别未处理的Bug Issue
+- 生成对应Incident写入本地记录
+- 标记Issue为处理中并添加评论
+- 发送飞书通知或Mock通知
+
+---
+
+### 通用操作
+#### 查看所有Incident记录
 所有异常记录保存在：
 ```
 autorepair/records/incidents.jsonl
 ```
 一行一个JSON格式的Incident对象。
 
-### 6. 飞书通知（可选）
-如果在`.env`中配置了完整的飞书参数（FEISHU_APP_ID、FEISHU_APP_SECRET、FEISHU_CHAT_ID），扫描到新异常时会自动发送飞书告警卡片；配置不完整时会在控制台打印模拟卡片内容。
+#### 飞书通知（可选）
+如果在`.env`中配置了完整的飞书参数（FEISHU_APP_ID、FEISHU_APP_SECRET、FEISHU_CHAT_ID），会自动发送飞书告警卡片；配置不完整时会在控制台打印模拟卡片内容。
 
-### 一键演示脚本
-```bash
-python scripts/run_stage2_demo.py
-```
-按照脚本提示操作即可完成完整演示流程。
+---
+
+### 📌 项目结构说明
+- 当前为monorepo结构：Agent代码和demo_service在同一个仓库
+- 初赛阶段不使用submodule
+- 生产版本可将target_repo配置为独立业务仓库，与Agent代码分离
+
+### 🎯 测试说明
+- 默认测试全部通过：`pytest -q`
+- 两个Agent修复目标测试预期失败：`pytest -q -m agent_target`
+  - 用户画像缺失异常：预期返回404，当前返回500
+  - 订单金额为0异常：预期返回400，当前返回500
+- 不要手动修复预埋Bug，留待后续阶段Agent自动修复
