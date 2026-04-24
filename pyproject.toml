@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "feishu-auto-repair"
+version = "0.1.0"
+authors = [
+  { name="", email="" },
+]
+description = "基于 Agent 的服务自动化修复系统"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.104.0",
+  "uvicorn>=0.24.0",
+  "pydantic>=2.5.0",
+  "pydantic-settings>=2.1.0",
+  "httpx>=0.25.0",
+  "python-dotenv>=1.0.0",
+]
+dynamic = ["readme"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "-m 'not agent_target'"
+markers = [
+  "agent_target: 标记为 Agent 自动修复的目标测试",
+]
+testpaths = ["demo_service/tests"]

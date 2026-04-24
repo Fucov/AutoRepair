@@ -1,0 +1,12 @@
+.trae
+.env
+docs
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+*.log
+demo_service/logs/*.log
+
