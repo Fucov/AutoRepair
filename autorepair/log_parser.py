@@ -1,7 +1,7 @@
 import re
 import hashlib
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple, List
 
 from .schemas import ErrorSummary
 
@@ -115,3 +115,68 @@ def extract_error_summary(traceback_text: str) -> Optional[ErrorSummary]:
         function=function,
         fingerprint=fingerprint
     )
+
+
+def extract_traceback_blocks(text: str) -> List[str]:
+    """
+    从一段日志文本中提取所有Traceback块
+    :param text: 日志文本
+    :return: Traceback块列表
+    """
+    if not text:
+        return []
+    
+    traceback_start = "Traceback (most recent call last):"
+    blocks = []
+    current_block = []
+    in_traceback = False
+    
+    lines = text.splitlines(keepends=True)
+    for line in lines:
+        if traceback_start in line:
+            if in_traceback and current_block:
+                blocks.append("".join(current_block))
+            current_block = [line]
+            in_traceback = True
+        elif in_traceback:
+            current_block.append(line)
+            # 检测Traceback结束：空行或正常日志格式开头（YYYY-MM-DD 格式的时间）
+            if line.strip() == "" or (len(line) > 10 and line[4] == "-" and line[7] == "-"):
+                blocks.append("".join(current_block))
+                in_traceback = False
+                current_block = []
+    
+    # 处理文件末尾未结束的Traceback
+    if in_traceback and current_block:
+        blocks.append("".join(current_block))
+    
+    return [block.strip() for block in blocks if block.strip()]
+
+
+def read_new_log_text(log_path: str | Path, offset: int) -> Tuple[str, int]:
+    """
+    从指定偏移量开始读取日志新增内容
+    :param log_path: 日志文件路径
+    :param offset: 起始偏移量
+    :return: (新增文本, 新的偏移量)
+    """
+    log_path = Path(log_path)
+    
+    if not log_path.exists():
+        return ("", 0)
+    
+    try:
+        current_size = log_path.stat().st_size
+        
+        # 如果文件大小小于偏移量，说明日志被清空或截断，从0开始读
+        if current_size < offset:
+            offset = 0
+        
+        with open(log_path, "r", encoding="utf-8") as f:
+            f.seek(offset)
+            new_text = f.read()
+            new_offset = f.tell()
+        
+        return (new_text, new_offset)
+    except Exception:
+        return ("", 0)

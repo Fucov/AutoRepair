@@ -70,45 +70,68 @@ pytest -q -m agent_target
 - pytest
 - httpx
 
-## 🚀 Stage 2B 演示流程
-Stage 2B 支持两类问题入口：本地运行时异常 + GitHub Issue Bug反馈，实现完整的异常发现→生成Incident→通知闭环。
+## 🚀 Stage 2C 演示流程
+Stage 2C 实现鲁棒 Incident Pipeline，支持增量日志扫描、重复错误聚合、避免重复通知，适合演示完整的异常监控流程。
 
 ---
 
-### 🔹 路线 A：本地日志触发
-适合演示服务运行时异常场景
+### 完整演示步骤
+#### 1. 清理演示状态
+每次演示前先重置状态，避免历史数据干扰：
+```bash
+python scripts/reset_demo_state.py
+```
+会清空日志、Incident记录和监控偏移量。
 
-#### 1. 启动Demo服务
+#### 2. 启动Demo服务
 ```bash
 python scripts/run_demo_server.py
 ```
 服务将运行在 http://127.0.0.1:8000
 
-#### 2. 打开浏览器访问业务控制台
+#### 3. 打开浏览器访问业务控制台
 访问 http://127.0.0.1:8000/
 页面提供四个业务功能按钮：
-- 健康检查：查询服务运行状态
-- 查询正常用户画像：查询用户ID u_1001 的信息（返回200）
-- 查询缺失用户画像：Demo: 会触发 TypeError 异常（返回500）
-- 提交异常订单：Demo: 会触发 ZeroDivisionError 异常（返回500）
+- 系统健康检查：查询服务运行状态
+- 查询正常员工画像：查询员工ID u_1001 的信息（返回200）
+- 查询缺失员工画像：Demo: 会触发 TypeError 异常（返回500）
+- 提交 0 元异常订单：Demo: 会触发 ZeroDivisionError 异常（返回500）
 
-#### 3. 触发异常
-点击「查询缺失用户画像」或「提交异常订单」按钮，服务会返回500错误，同时生成完整Traceback日志。
+#### 4. 连续触发多个异常
+依次点击以下按钮各2次：
+- 查询缺失员工画像（点击2次）
+- 提交 0 元异常订单（点击2次）
 
-#### 4. 扫描日志生成Incident
+共触发4次异常请求，服务会返回500错误，同时生成完整Traceback日志。
+
+#### 5. 扫描新增日志生成Incident
 另开终端执行：
 ```bash
 python scripts/watch_once.py
 ```
-如果发现新的异常，会输出Incident ID、错误类型、位置等信息；如果没有新异常则显示"No new incident"。
 
-> 同一个错误只会生成一次Incident，基于指纹自动去重。
+**预期输出：**
+```
+[created] INC-20240501-120000-xxxxxx TypeError demo_service/service.py:11 occurrence_count=2
+[created] INC-20240501-120000-yyyyyy ZeroDivisionError demo_service/order_service.py:16 occurrence_count=2
+```
+- 相同错误被自动聚合，4次异常只生成2个Incident
+- occurrence_count分别为2，表示每个错误各发生2次
+- 只有首次创建的Incident会发送飞书卡片，重复错误不重复通知（避免刷屏）
+
+#### 6. 再次运行扫描
+```bash
+python scripts/watch_once.py
+```
+**预期输出：**
+```
+No new incident.
+```
+没有新增日志，不会重复处理。
 
 ---
 
-### 🔹 路线 B：GitHub Issue 触发
-适合演示外部Bug反馈场景
-
+### 🔹 GitHub Issue 触发路线（可选）
 #### 1. 创建演示Bug Issue
 ```bash
 # 可选scenario_id: user-missing-profile / order-zero-division
@@ -134,10 +157,10 @@ python scripts/watch_github_issues_once.py
 ```
 autorepair/records/incidents.jsonl
 ```
-一行一个JSON格式的Incident对象。
+包含occurrence_count、first_seen_at、last_seen_at、source_refs等聚合字段。
 
 #### 飞书通知（可选）
-如果在`.env`中配置了完整的飞书参数（FEISHU_APP_ID、FEISHU_APP_SECRET、FEISHU_CHAT_ID），会自动发送飞书告警卡片；配置不完整时会在控制台打印模拟卡片内容。
+如果在`.env`中配置了完整的飞书参数（FEISHU_APP_ID、FEISHU_APP_SECRET、FEISHU_CHAT_ID），只有**首次创建**的Incident会发送飞书告警卡片；重复错误不会重复发送通知，避免刷屏。配置不完整时会在控制台打印模拟卡片内容。
 
 ---
 
@@ -147,7 +170,7 @@ autorepair/records/incidents.jsonl
 - 生产版本可将target_repo配置为独立业务仓库，与Agent代码分离
 
 ### 🎯 测试说明
-- 默认测试全部通过：`pytest -q`
+- 默认测试全部通过：`pytest -q`（新增功能测试已覆盖，共10+测试用例）
 - 两个Agent修复目标测试预期失败：`pytest -q -m agent_target`
   - 用户画像缺失异常：预期返回404，当前返回500
   - 订单金额为0异常：预期返回400，当前返回500

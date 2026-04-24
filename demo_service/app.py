@@ -74,13 +74,16 @@ async def index_page():
 </head>
 <body>
     <div class="header">
-        <h1>Acme Lite Service Console</h1>
+        <h1>Acme Lite CRM & Order Console</h1>
     </div>
     
     <div class="container">
         <div class="card">
             <div class="card-title">系统状态</div>
             <span class="status-badge">✅ 服务运行中</span>
+            <div style="margin-top: 1rem; padding: 0.8rem; background: #f0f5ff; border-radius: 4px; font-size: 0.9rem; color: #333;">
+                这是一个用于模拟企业内部用户画像与订单预览服务的轻量业务控制台。异常操作会触发服务端 Bug，供 AutoRepair Agent 捕获并修复。
+            </div>
         </div>
 
         <div class="card">
@@ -88,19 +91,19 @@ async def index_page():
             
             <div class="btn-group">
                 <div>
-                    <button class="btn btn-primary" onclick="callHealthCheck()">健康检查</button>
+                    <button class="btn btn-primary" onclick="callHealthCheck()">系统健康检查</button>
                     <div class="btn-desc">查询服务运行状态</div>
                 </div>
                 <div>
-                    <button class="btn btn-success" onclick="getNormalUserProfile()">查询正常用户画像</button>
-                    <div class="btn-desc">查询用户ID u_1001 的信息</div>
+                    <button class="btn btn-success" onclick="getNormalUserProfile()">查询正常员工画像</button>
+                    <div class="btn-desc">查询员工ID u_1001 的信息</div>
                 </div>
                 <div>
-                    <button class="btn btn-warning" onclick="getMissingUserProfile()">查询缺失用户画像</button>
+                    <button class="btn btn-warning" onclick="getMissingUserProfile()">查询缺失员工画像</button>
                     <div class="btn-desc">Demo: 会触发 TypeError 异常</div>
                 </div>
                 <div>
-                    <button class="btn btn-danger" onclick="previewAbnormalOrder()">提交异常订单</button>
+                    <button class="btn btn-danger" onclick="previewAbnormalOrder()">提交 0 元异常订单</button>
                     <div class="btn-desc">Demo: 会触发 ZeroDivisionError 异常</div>
                 </div>
             </div>
