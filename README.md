@@ -57,6 +57,11 @@ pytest -q -m agent_target
 ```
 该测试期望不存在的用户返回 404，当前由于预埋 Bug 会返回 500，所以测试失败，作为后续 Agent 自动修复的目标。
 
+⚠️ 注意：
+- agent_target 测试失败是**预期行为**，不要为了通过测试而手动修复预埋 Bug
+- 该失败测试是后续阶段 Agent 自动修复的唯一目标
+- 预埋 Bug 位于 `demo_service/service.py` 的 `build_user_profile` 函数中
+
 ## 技术栈
 - Python 3.12+
 - FastAPI

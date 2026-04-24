@@ -6,7 +6,14 @@ from autorepair.config import LOG_PATH
 def setup_logging():
     """
     配置日志系统，确保日志包含完整 Traceback 并写入文件
+    避免重复注册handler导致日志重复
     """
+    root_logger = logging.getLogger()
+    
+    # 已经配置过handler则直接返回，避免重复注册
+    if root_logger.handlers:
+        return
+    
     # 自动创建 logs 目录
     log_dir = LOG_PATH.parent
     log_dir.mkdir(parents=True, exist_ok=True)

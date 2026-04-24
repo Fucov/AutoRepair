@@ -15,3 +15,12 @@ class Incident(BaseModel):
     line_no: int | None = None
     fingerprint: str | None = None
     status: str = "NEW"
+
+
+class ErrorSummary(BaseModel):
+    error_type: str
+    message: str
+    suspected_file: str | None = None
+    line_no: int | None = None
+    function: str | None = None
+    fingerprint: str

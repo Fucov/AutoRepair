@@ -30,4 +30,4 @@ addopts = "-m 'not agent_target'"
 markers = [
   "agent_target: 标记为 Agent 自动修复的目标测试",
 ]
-testpaths = ["demo_service/tests"]
+testpaths = ["demo_service/tests", "autorepair/tests"]
