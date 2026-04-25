@@ -1,10 +1,13 @@
 import logging
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Body, Path
 from fastapi.responses import JSONResponse, HTMLResponse
+from pydantic import BaseModel
+from typing import Optional
 
-from fastapi import Body
 from .service import build_user_profile
 from .order_service import calculate_order_discount, OrderPreviewRequest
+from .ticket_service import submit_ticket
+from .ticket_repository import get_ticket
 from .logging_config import setup_logging
 
 
@@ -74,7 +77,7 @@ async def index_page():
 </head>
 <body>
     <div class="header">
-        <h1>Acme Lite CRM & Order Console</h1>
+        <h1>Acme SupportDesk Lite</h1>
     </div>
     
     <div class="container">
@@ -82,12 +85,12 @@ async def index_page():
             <div class="card-title">系统状态</div>
             <span class="status-badge">✅ 服务运行中</span>
             <div style="margin-top: 1rem; padding: 0.8rem; background: #f0f5ff; border-radius: 4px; font-size: 0.9rem; color: #333;">
-                这是一个用于模拟企业内部用户画像与订单预览服务的轻量业务控制台。异常操作会触发服务端 Bug，供 AutoRepair Agent 捕获并修复。
+                这是一个用于模拟企业内部工单与 SLA 服务的轻量业务控制台。异常操作会触发服务端 Bug，供 AutoRepair Agent 捕获、聚合、通知并在后续阶段自动修复。
             </div>
         </div>
 
         <div class="card">
-            <div class="card-title">业务操作</div>
+            <div class="card-title">🔥 主线工单场景</div>
             
             <div class="btn-group">
                 <div>
@@ -95,16 +98,31 @@ async def index_page():
                     <div class="btn-desc">查询服务运行状态</div>
                 </div>
                 <div>
-                    <button class="btn btn-success" onclick="getNormalUserProfile()">查询正常员工画像</button>
-                    <div class="btn-desc">查询员工ID u_1001 的信息</div>
+                    <button class="btn btn-success" onclick="submitNormalTicket()">提交正常 P2 工单</button>
+                    <div class="btn-desc">不带时区SLA，创建成功</div>
                 </div>
                 <div>
-                    <button class="btn btn-warning" onclick="getMissingUserProfile()">查询缺失员工画像</button>
-                    <div class="btn-desc">Demo: 会触发 TypeError 异常</div>
+                    <button class="btn btn-warning" onclick="submitTimezoneTicket()">提交带 +08:00 SLA 的紧急工单</button>
+                    <div class="btn-desc">Demo: 触发时区比较 TypeError</div>
                 </div>
                 <div>
-                    <button class="btn btn-danger" onclick="previewAbnormalOrder()">提交 0 元异常订单</button>
-                    <div class="btn-desc">Demo: 会触发 ZeroDivisionError 异常</div>
+                    <button class="btn btn-danger" onclick="submitDuplicateTicket()">重复提交同一幂等键工单</button>
+                    <div class="btn-desc">Demo: 模拟业务幂等性缺陷</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">📦 Legacy Bug 场景</div>
+            
+            <div class="btn-group">
+                <div>
+                    <button class="btn btn-secondary" onclick="getMissingUserProfile()">查询缺失员工画像</button>
+                    <div class="btn-desc">TypeError 异常</div>
+                </div>
+                <div>
+                    <button class="btn btn-secondary" onclick="previewAbnormalOrder()">提交 0 元异常订单</button>
+                    <div class="btn-desc">ZeroDivisionError 异常</div>
                 </div>
             </div>
         </div>
@@ -167,6 +185,85 @@ async def index_page():
                 });
                 const text = await response.text();
                 resultEl.textContent = `Status: ${response.status}\\n\\nResponse:\\n${text}`;
+                if (response.status === 500) {
+                    resultEl.textContent += "\\n\\nℹ️  后台将生成 traceback，可运行 python scripts/watch_once.py 扫描";
+                }
+            } catch (e) {
+                resultEl.textContent = `请求失败: ${e.message}`;
+            }
+        }
+
+        async function submitNormalTicket() {
+            resultEl.textContent = '请求中...';
+            try {
+                const response = await fetch('/tickets/submit', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        customer_id: "c_1001",
+                        title: "普通咨询工单",
+                        priority: "P2",
+                        channel: "web",
+                        sla_deadline: "2099-01-01T00:00:00"
+                    })
+                });
+                const text = await response.text();
+                resultEl.textContent = `Status: ${response.status}\\n\\nResponse:\\n${text}`;
+            } catch (e) {
+                resultEl.textContent = `请求失败: ${e.message}`;
+            }
+        }
+
+        async function submitTimezoneTicket() {
+            resultEl.textContent = '请求中...';
+            try {
+                const response = await fetch('/tickets/submit', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        customer_id: "c_1002",
+                        title: "紧急：客户反馈无法收到审批通知",
+                        priority: "P1",
+                        channel: "feishu",
+                        sla_deadline: "2026-04-25T18:00:00+08:00",
+                        idempotency_key: "evt_20260425_001"
+                    })
+                });
+                const text = await response.text();
+                resultEl.textContent = `Status: ${response.status}\\n\\nResponse:\\n${text}`;
+                if (response.status === 500) {
+                    resultEl.textContent += "\\n\\nℹ️  后台将生成 traceback，可运行 python scripts/watch_once.py 扫描";
+                }
+            } catch (e) {
+                resultEl.textContent = `请求失败: ${e.message}`;
+            }
+        }
+
+        let duplicateCount = 1;
+        async function submitDuplicateTicket() {
+            resultEl.textContent = `请求中... (第${duplicateCount}次提交)`;
+            try {
+                const response = await fetch('/tickets/submit', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        customer_id: "c_1003",
+                        title: "重复提交测试工单",
+                        priority: "P3",
+                        channel: "api",
+                        sla_deadline: "2026-05-01T00:00:00",
+                        idempotency_key: "evt_duplicate_test_001"
+                    })
+                });
+                const text = await response.text();
+                resultEl.textContent = `第${duplicateCount}次提交 Status: ${response.status}\\n\\nResponse:\\n${text}`;
+                duplicateCount++;
             } catch (e) {
                 resultEl.textContent = `请求失败: ${e.message}`;
             }
@@ -181,3 +278,26 @@ async def index_page():
 @app.post("/orders/preview")
 async def preview_order(request: OrderPreviewRequest):
     return calculate_order_discount(request)
+
+
+class TicketSubmitRequest(BaseModel):
+    customer_id: str
+    title: str
+    priority: str
+    channel: str
+    sla_deadline: str
+    idempotency_key: Optional[str] = None
+
+
+@app.post("/tickets/submit")
+async def submit_ticket_endpoint(request: TicketSubmitRequest):
+    ticket = submit_ticket(request.model_dump())
+    return ticket
+
+
+@app.get("/tickets/{ticket_id}")
+async def get_ticket_endpoint(ticket_id: str = Path(..., description="工单ID")):
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        return JSONResponse(status_code=404, content={"detail": "Ticket not found"})
+    return ticket

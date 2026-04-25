@@ -175,3 +175,94 @@ autorepair/records/incidents.jsonl
   - 用户画像缺失异常：预期返回404，当前返回500
   - 订单金额为0异常：预期返回400，当前返回500
 - 不要手动修复预埋Bug，留待后续阶段Agent自动修复
+
+---
+
+## 🚀 Stage 2D 演示流程
+Stage 2D 升级为更贴近企业研发协作的「Acme SupportDesk Lite 工单与 SLA 服务」场景，补齐 Mock GitHub Issue 离线闭环，优化演示体验。
+
+### 🎯 演示路线 A：运行时异常场景
+#### 1. 清理演示状态
+```bash
+python scripts/reset_demo_state.py
+```
+会清空日志、Incident记录、监控偏移量和Mock GitHub Issue记录。
+
+#### 2. 启动Demo服务
+```bash
+python scripts/run_demo_server.py
+```
+服务将运行在 http://127.0.0.1:8000
+
+#### 3. 打开浏览器访问业务控制台
+访问 http://127.0.0.1:8000/
+页面包含：
+- 🔥 主线工单场景（4个按钮）
+  - 系统健康检查
+  - 提交正常 P2 工单
+  - 提交带 +08:00 SLA 的紧急工单（触发时区 Bug）
+  - 重复提交同一幂等键工单（模拟业务缺陷）
+- 📦 Legacy Bug 场景（原有2个Bug）
+
+#### 4. 触发时区Bug
+点击「提交带 +08:00 SLA 的紧急工单」按钮，会返回500错误。
+
+#### 5. 扫描日志生成Incident
+另开终端执行：
+```bash
+python scripts/watch_once.py
+```
+
+**预期输出：**
+```
+============================================================
+📊 Scan Summary
+============================================================
+- Created incidents: 1
+- Updated occurrences: 0
+- Feishu cards sent: 1
+============================================================
+
+Details:
+[created] INC-xxxxxx TypeError demo_service/ticket_service.py:23 occurrence_count=1
+```
+- 生成TypeError Incident，错误信息包含"can't compare offset-naive and offset-aware datetimes"
+- 飞书真实通知或控制台打印Mock卡片
+
+---
+
+### 🎯 演示路线 B：GitHub Issue 离线闭环场景
+#### 1. 清理演示状态
+```bash
+python scripts/reset_demo_state.py
+```
+
+#### 2. 创建Mock GitHub Issue
+即使没有真实GitHub Token，也可以完整演示：
+```bash
+python scripts/create_demo_issue.py ticket-idempotency-duplicate
+```
+会在控制台打印Mock Issue内容，并写入本地mock_github_issues.jsonl。
+
+#### 3. 扫描GitHub Issue
+```bash
+python scripts/watch_github_issues_once.py
+```
+
+**预期输出：**
+- 从本地mock文件发现刚创建的Issue
+- 生成source=github_issue的Incident
+- 写入incidents.jsonl
+- 输出Mock飞书卡片
+- Mock Issue被添加processing标签和评论
+
+---
+
+### 📌 测试说明
+- 默认测试全部通过：`pytest -q`（新增ticket模块测试，共12+测试用例）
+- 四个Agent修复目标测试预期失败：`pytest -q -m agent_target`
+  1. 用户画像缺失异常：预期返回404，当前返回500
+  2. 订单金额为0异常：预期返回400，当前返回500
+  3. 带时区SLA工单创建：预期成功，当前返回500
+  4. 重复幂等键提交：预期返回同一工单，当前创建多个
+- 所有预埋Bug均未修复，留待后续阶段Agent自动修复

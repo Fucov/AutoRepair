@@ -1,14 +1,21 @@
 import logging
+import json
+from pathlib import Path
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 import httpx
+import uuid
 
 from autorepair.config import (
     GITHUB_TOKEN,
     GITHUB_OWNER,
     GITHUB_REPO,
     GITHUB_API_BASE_URL,
+    PROJECT_ROOT,
 )
+
+# Mock GitHub Issue 本地存储路径
+MOCK_GITHUB_ISSUES_PATH = PROJECT_ROOT / "autorepair" / "records" / "mock_github_issues.jsonl"
 from autorepair.bug_scenarios import get_scenario_by_id
 
 logger = logging.getLogger(__name__)
@@ -28,6 +35,47 @@ def _is_github_configured() -> bool:
     return all([GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO])
 
 
+def _ensure_mock_file_exists() -> None:
+    """确保mock GitHub Issue存储文件存在"""
+    MOCK_GITHUB_ISSUES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not MOCK_GITHUB_ISSUES_PATH.exists():
+        with open(MOCK_GITHUB_ISSUES_PATH, "w", encoding="utf-8") as f:
+            pass
+
+
+def _load_mock_issues() -> List[Dict]:
+    """加载本地mock Issue"""
+    _ensure_mock_file_exists()
+    issues = []
+    with open(MOCK_GITHUB_ISSUES_PATH, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                issues.append(json.loads(line))
+    return issues
+
+
+def _save_mock_issue(issue: Dict) -> None:
+    """保存mock Issue到本地文件"""
+    _ensure_mock_file_exists()
+    with open(MOCK_GITHUB_ISSUES_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(issue, ensure_ascii=False) + "\n")
+
+
+def _update_mock_issue(issue_number: int, updates: Dict) -> None:
+    """更新mock Issue"""
+    issues = _load_mock_issues()
+    updated = []
+    for issue in issues:
+        if issue["number"] == issue_number:
+            issue.update(updates)
+        updated.append(issue)
+    
+    with open(MOCK_GITHUB_ISSUES_PATH, "w", encoding="utf-8") as f:
+        for issue in updated:
+            f.write(json.dumps(issue, ensure_ascii=False) + "\n")
+
+
 def _get_headers() -> Dict:
     """获取GitHub API请求头"""
     return {
@@ -40,11 +88,28 @@ def list_open_bug_issues() -> List[GitHubIssue]:
     """
     获取所有打开的Bug Issue
     过滤条件：标签包含bug，不包含autorepair:processing/autorepair:pr-created
-    配置缺失时返回空列表
+    配置缺失时从本地mock文件读取
     """
     if not _is_github_configured():
-        logger.warning("GitHub配置不完整，返回空Issue列表（mock模式）")
-        return []
+        # 配置缺失时从本地mock文件读取
+        logger.warning("GitHub配置不完整，从本地mock文件读取Issue")
+        mock_issues = _load_mock_issues()
+        issues = []
+        for issue in mock_issues:
+            labels = issue.get("labels", [])
+            # 过滤已处理的issue
+            if "autorepair:processing" in labels or "autorepair:pr-created" in labels:
+                continue
+            if issue.get("state") == "open" and "bug" in labels:
+                issues.append(GitHubIssue(
+                    number=issue["number"],
+                    title=issue["title"],
+                    body=issue["body"],
+                    html_url=issue["html_url"],
+                    labels=labels,
+                    state=issue["state"]
+                ))
+        return issues
 
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues"
@@ -112,13 +177,35 @@ def create_demo_bug_issue(scenario_id: str) -> Optional[GitHubIssue]:
 """
 
     if not _is_github_configured():
+        # 配置缺失时，写入本地mock Issue存储
         print("\n" + "=" * 60)
         print("📝 Mock GitHub Issue (配置不完整，仅模拟创建)")
         print("=" * 60)
         print(f"Title: {issue_title}")
         print(f"Body:\n{issue_body}")
         print("=" * 60 + "\n")
-        return None
+        
+        # 生成mock issue数据
+        issue_number = int(uuid.uuid4().hex[:4], 16) % 1000 + 1  # 生成1-1000的随机Issue编号
+        mock_issue = {
+            "number": issue_number,
+            "title": issue_title,
+            "body": issue_body,
+            "html_url": f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/issues/{issue_number}",
+            "labels": ["bug"],
+            "state": "open",
+            "comments": []
+        }
+        _save_mock_issue(mock_issue)
+        
+        return GitHubIssue(
+            number=mock_issue["number"],
+            title=mock_issue["title"],
+            body=mock_issue["body"],
+            html_url=mock_issue["html_url"],
+            labels=mock_issue["labels"],
+            state=mock_issue["state"]
+        )
 
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues"
@@ -149,10 +236,17 @@ def create_demo_bug_issue(scenario_id: str) -> Optional[GitHubIssue]:
 def mark_issue_processing(issue_number: int) -> None:
     """
     标记Issue为处理中，添加autorepair:processing标签
-    配置缺失时无操作
+    配置缺失时更新本地mock Issue
     """
     if not _is_github_configured():
         logger.debug(f"Mock标记Issue #{issue_number}为处理中")
+        # 更新本地mock Issue的标签
+        issues = _load_mock_issues()
+        for issue in issues:
+            if issue["number"] == issue_number and "autorepair:processing" not in issue["labels"]:
+                issue["labels"].append("autorepair:processing")
+                _update_mock_issue(issue_number, {"labels": issue["labels"]})
+                break
         return
 
     try:
@@ -168,7 +262,7 @@ def mark_issue_processing(issue_number: int) -> None:
 def comment_issue(issue_number: int, body: str) -> None:
     """
     给Issue添加评论
-    配置缺失时打印mock评论
+    配置缺失时保存评论到本地mock Issue
     """
     if not _is_github_configured():
         print("\n" + "=" * 60)
@@ -176,6 +270,19 @@ def comment_issue(issue_number: int, body: str) -> None:
         print("=" * 60)
         print(body)
         print("=" * 60 + "\n")
+        
+        # 保存评论到本地mock Issue
+        issues = _load_mock_issues()
+        for issue in issues:
+            if issue["number"] == issue_number:
+                if "comments" not in issue:
+                    issue["comments"] = []
+                issue["comments"].append({
+                    "body": body,
+                    "created_at": datetime.utcnow().isoformat()
+                })
+                _update_mock_issue(issue_number, {"comments": issue["comments"]})
+                break
         return
 
     try:

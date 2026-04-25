@@ -7,6 +7,7 @@ sys.path.append(str(Path(__file__).parent.parent.resolve()))
 from autorepair.config import LOG_PATH
 from autorepair.incident_store import DEFAULT_INCIDENT_PATH
 from autorepair.watch_state import DEFAULT_WATCH_STATE_PATH
+from autorepair.adapters.github import MOCK_GITHUB_ISSUES_PATH
 
 def reset_file(file_path: Path, description: str):
     """重置文件内容"""
@@ -44,6 +45,9 @@ if __name__ == "__main__":
     
     # 3. 删除watch状态文件
     delete_file(DEFAULT_WATCH_STATE_PATH, "Watch状态文件")
+    
+    # 4. 清空Mock GitHub Issue文件
+    reset_file(MOCK_GITHUB_ISSUES_PATH, "Mock GitHub Issue记录文件")
     
     print("=" * 50)
     print("🎉 演示状态清理完成！")

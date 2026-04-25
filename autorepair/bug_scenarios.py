@@ -30,6 +30,24 @@ BUG_SCENARIOS: List[BugScenario] = [
         expected_error_type="ZeroDivisionError",
         expected_behavior="返回400 Invalid order amount",
         target_test_command="pytest -q demo_service/tests/test_order_contract.py::test_zero_total_amount_should_return_400 -m agent_target"
+    ),
+    BugScenario(
+        scenario_id="ticket-timezone-sla",
+        title="带时区 SLA 截止时间导致工单创建失败",
+        trigger_type="local_log",
+        endpoint="POST /tickets/submit",
+        expected_error_type="TypeError",
+        expected_behavior="成功创建工单，返回200",
+        target_test_command="pytest -q demo_service/tests/test_ticket_contract.py::test_timezone_aware_sla_deadline_should_create_ticket -m agent_target"
+    ),
+    BugScenario(
+        scenario_id="ticket-idempotency-duplicate",
+        title="重复事件导致重复创建工单",
+        trigger_type="github_issue",
+        endpoint="POST /tickets/submit",
+        expected_error_type="BusinessLogicError",
+        expected_behavior="同一个幂等键返回同一个工单，不重复创建",
+        target_test_command="pytest -q demo_service/tests/test_ticket_contract.py::test_duplicate_idempotency_key_should_not_create_two_tickets -m agent_target"
     )
 ]
 
