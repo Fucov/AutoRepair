@@ -1,0 +1,17 @@
+services:
+  - service_id: supportdesk-lite
+    name: Acme SupportDesk Lite
+    description: 企业内部工单与 SLA 服务
+    language: python
+    framework: fastapi
+    base_url: http://127.0.0.1:8000
+    healthcheck_url: http://127.0.0.1:8000/health
+    repo_path: .
+    log_paths:
+      - demo_service/logs/app.log
+    test_command: pytest -q
+    agent_target_test_command: pytest -q -m agent_target
+    github:
+      owner_env: GITHUB_OWNER
+      repo_env: GITHUB_REPO
+      base_branch_env: GITHUB_BASE_BRANCH

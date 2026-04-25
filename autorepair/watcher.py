@@ -6,8 +6,9 @@ from pathlib import Path
 from .config import LOG_PATH
 from .log_parser import read_latest_traceback, extract_error_summary, extract_traceback_blocks, read_new_log_text
 from .watch_state import get_log_offset, set_log_offset
-from .schemas import Incident
+from .schemas import Incident, TargetService
 from .incident_store import has_fingerprint, append_incident, upsert_incident_by_fingerprint
+from .audit_store import append_audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -123,11 +124,46 @@ def scan_new_log_events_once(log_path: Optional[str] = None) -> List[Tuple[Incid
             final_incident, action = upsert_incident_by_fingerprint(incident)
             results.append((final_incident, action))
             
+            # 写入审计记录
+            if action == "created":
+                append_audit_event("incident_created", final_incident.incident_id, {
+                    "error_type": final_incident.error_summary.error_type,
+                    "fingerprint": final_incident.error_summary.fingerprint,
+                    "source": final_incident.source
+                })
+            elif action == "updated":
+                append_audit_event("incident_updated", final_incident.incident_id, {
+                    "occurrence_count": final_incident.occurrence_count
+                })
+            
         except Exception as e:
             logger.warning(f"处理Traceback块失败: {str(e)}")
             continue
     
     # 5. 更新偏移量
     set_log_offset(log_path, new_offset)
+    
+    return results
+
+
+def scan_service_logs_once(service: TargetService) -> List[Tuple[Incident, str]]:
+    """
+    扫描指定服务的所有日志路径，生成新增或更新的Incident
+    :param service: 目标服务配置
+    :return: 列表，每个元素是(Incident对象, action: "created"|"updated")
+    """
+    results = []
+    
+    for log_path in service.log_paths:
+        # 使用现有scan_new_log_events_once处理每个日志文件
+        log_results = scan_new_log_events_once(log_path)
+        
+        # 更新Incident的service_id和service_name
+        for incident, action in log_results:
+            incident.service_id = service.service_id
+            incident.service_name = service.name
+            incident.service = service.name  # 保持兼容旧字段
+            
+            results.append((incident, action))
     
     return results

@@ -7,7 +7,8 @@ sys.path.append(str(Path(__file__).parent.parent.resolve()))
 from autorepair.config import LOG_PATH
 from autorepair.incident_store import DEFAULT_INCIDENT_PATH
 from autorepair.watch_state import DEFAULT_WATCH_STATE_PATH
-from autorepair.adapters.github import MOCK_GITHUB_ISSUES_PATH
+from autorepair.adapters.github import MOCK_GITHUB_ISSUES_PATH, MOCK_GITHUB_ISSUE_COMMENTS_PATH
+from autorepair.audit_store import DEFAULT_AUDIT_PATH
 
 def reset_file(file_path: Path, description: str):
     """重置文件内容"""
@@ -48,6 +49,12 @@ if __name__ == "__main__":
     
     # 4. 清空Mock GitHub Issue文件
     reset_file(MOCK_GITHUB_ISSUES_PATH, "Mock GitHub Issue记录文件")
+    
+    # 5. 清空Mock GitHub Issue评论文件
+    reset_file(MOCK_GITHUB_ISSUE_COMMENTS_PATH, "Mock GitHub Issue评论文件")
+    
+    # 6. 清空审计记录文件
+    reset_file(DEFAULT_AUDIT_PATH, "审计记录文件")
     
     print("=" * 50)
     print("🎉 演示状态清理完成！")

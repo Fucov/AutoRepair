@@ -31,7 +31,14 @@ def build_incident_card_payload(incident: Incident) -> Dict:
             "is_short": True,
             "text": {
                 "tag": "lark_md",
-                "content": f"**服务名称**\n{incident.service}"
+                "content": f"**服务名称**\n{incident.service_name or incident.service}"
+            }
+        },
+        {
+            "is_short": True,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**服务ID**\n{incident.service_id or 'unknown'}"
             }
         },
         {
@@ -53,6 +60,13 @@ def build_incident_card_payload(incident: Incident) -> Dict:
             "text": {
                 "tag": "lark_md",
                 "content": f"**错误位置**\n{summary.suspected_file}:{summary.line_no}"
+            }
+        },
+        {
+            "is_short": True,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**发生次数**\n{incident.occurrence_count}"
             }
         },
         {
@@ -97,7 +111,7 @@ def build_incident_card_payload(incident: Incident) -> Dict:
         "tag": "div",
         "text": {
             "tag": "lark_md",
-            "content": "ℹ️ **当前阶段**：已接收问题，等待 Agent 分析与自动修复"
+            "content": "ℹ️ **当前阶段**：diagnosed\n系统已完成基础核查，后续将由 Doubao Agent 生成修复计划。"
         }
     })
     
