@@ -269,44 +269,58 @@ async def index_page():
                     <tr>
                         <th>工单编号</th>
                         <th>客户</th>
-                        <th>来源</th>
+                        <th>来源渠道</th>
                         <th>优先级</th>
                         <th>SLA 截止时间</th>
+                        <th>处理人</th>
                         <th>状态</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td>INC-20240425-001</td>
-                        <td>阿里巴巴集团</td>
+                        <td>TKT-20260425-001</td>
+                        <td>阿里巴巴</td>
                         <td>飞书</td>
                         <td><span class="priority-p1">P1</span></td>
-                        <td>2024-04-25 14:30:00</td>
+                        <td>2026-04-25 14:30</td>
+                        <td>张三</td>
                         <td><span class="status-in-progress">处理中</span></td>
                     </tr>
                     <tr>
-                        <td>INC-20240425-002</td>
+                        <td>TKT-20260425-002</td>
                         <td>腾讯科技</td>
                         <td>官网</td>
                         <td><span class="priority-p2">P2</span></td>
-                        <td>2024-04-25 18:00:00</td>
-                        <td><span class="status-open">待处理</span></td>
+                        <td>2026-04-25 16:00</td>
+                        <td>李四</td>
+                        <td><span class="status-open">待分配</span></td>
                     </tr>
                     <tr>
-                        <td>INC-20240425-003</td>
+                        <td>TKT-20260425-003</td>
                         <td>字节跳动</td>
                         <td>飞书</td>
                         <td><span class="priority-p2">P2</span></td>
-                        <td>2024-04-25 16:45:00</td>
+                        <td>2026-04-25 15:00</td>
+                        <td>王五</td>
                         <td><span class="status-in-progress">处理中</span></td>
                     </tr>
                     <tr>
-                        <td>INC-20240425-004</td>
-                        <td>百度公司</td>
-                        <td>电话</td>
+                        <td>TKT-20260425-004</td>
+                        <td>百度</td>
+                        <td>邮件</td>
                         <td><span class="priority-p3">P3</span></td>
-                        <td>2024-04-26 12:00:00</td>
+                        <td>2026-04-26 10:00</td>
+                        <td>赵六</td>
                         <td><span class="status-resolved">已解决</span></td>
+                    </tr>
+                    <tr>
+                        <td>TKT-20260425-005</td>
+                        <td>华为技术</td>
+                        <td>飞书</td>
+                        <td><span class="priority-p1">P1</span></td>
+                        <td>2026-04-25 13:45</td>
+                        <td>孙七</td>
+                        <td><span class="status-open">待分配</span></td>
                     </tr>
                 </tbody>
             </table>
@@ -315,11 +329,10 @@ async def index_page():
         <div class="section">
             <h2>最近事件流</h2>
             <ul class="event-stream">
-                <li><span class="event-time">14:23:12</span>飞书渠道收到客户反馈，创建P1工单</li>
-                <li><span class="event-time">14:20:05</span>P1工单 INC-20240425-001 进入 SLA 风险预警</li>
-                <li><span class="event-time">14:18:33</span>AutoRepair Agent 正在监听服务异常</li>
-                <li><span class="event-time">14:15:47</span>工单 INC-20240425-004 已解决，客户满意度5星</li>
-                <li><span class="event-time">14:12:09</span>系统健康检查通过，所有服务运行正常</li>
+                <li><span class="event-time">13:24:12</span>飞书渠道收到客户反馈</li>
+                <li><span class="event-time">13:22:05</span>P1 工单 TKT-20260425-001 进入 SLA 风险</li>
+                <li><span class="event-time">13:20:00</span>AutoRepair 正在监听服务日志</li>
+                <li><span class="event-time">13:18:33</span>最近一次异常将写入 demo_service/logs/app.log</li>
             </ul>
         </div>
 

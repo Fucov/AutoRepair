@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "feishu-auto-repair"
 version = "0.1.0"
 authors = [
-  { name="", email="" },
+  { name="FeishuAutoRepair Team", email="yangkw@buaa.edu.cn" },
 ]
 description = "基于 Agent 的服务自动化修复系统"
 requires-python = ">=3.12"

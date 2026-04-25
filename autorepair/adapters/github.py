@@ -2,6 +2,7 @@ import logging
 import json
 from pathlib import Path
 from typing import List, Dict, Optional
+from datetime import datetime
 from pydantic import BaseModel
 import httpx
 import uuid
@@ -233,21 +234,107 @@ def create_demo_bug_issue(scenario_id: str) -> Optional[GitHubIssue]:
         return None
 
 
+def create_issue(title: str, body: str, labels: List[str] = None) -> Optional[GitHubIssue]:
+    """
+    通用创建Issue函数
+    配置缺失时写入本地mock Issue存储
+    """
+    labels = labels or ["bug"]
+    
+    if not _is_github_configured():
+        # 配置缺失时，写入本地mock Issue存储
+        print("\n" + "=" * 60)
+        print("📝 Mock GitHub Issue (配置不完整，仅模拟创建)")
+        print("=" * 60)
+        print(f"Title: {title}")
+        print(f"Body:\n{body}")
+        print("=" * 60 + "\n")
+        
+        # 生成mock issue数据
+        issue_number = int(uuid.uuid4().hex[:4], 16) % 1000 + 1  # 生成1-1000的随机Issue编号
+        mock_issue = {
+            "number": issue_number,
+            "title": title,
+            "body": body,
+            "html_url": f"mock://local/issue/{issue_number}",
+            "labels": labels,
+            "state": "open",
+            "comments": []
+        }
+        _save_mock_issue(mock_issue)
+        
+        return GitHubIssue(
+            number=mock_issue["number"],
+            title=mock_issue["title"],
+            body=mock_issue["body"],
+            html_url=mock_issue["html_url"],
+            labels=mock_issue["labels"],
+            state=mock_issue["state"]
+        )
+
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues"
+        payload = {
+            "title": title,
+            "body": body,
+            "labels": labels
+        }
+        response = httpx.post(url, headers=_get_headers(), json=payload, timeout=10)
+        response.raise_for_status()
+        issue_data = response.json()
+
+        issue = GitHubIssue(
+            number=issue_data["number"],
+            title=issue_data["title"],
+            body=issue_data["body"],
+            html_url=issue_data["html_url"],
+            labels=[label["name"] for label in issue_data["labels"]],
+            state=issue_data["state"]
+        )
+        logger.info(f"成功创建GitHub Issue #{issue.number}: {issue.html_url}")
+        return issue
+    except Exception as e:
+        logger.error(f"创建GitHub Issue失败: {str(e)}")
+        return None
+
+
+def add_labels(issue_number: int, labels: List[str]) -> bool:
+    """
+    给Issue添加标签
+    配置缺失时更新本地mock Issue
+    """
+    if not _is_github_configured():
+        logger.debug(f"Mock给Issue #{issue_number}添加标签: {labels}")
+        # 更新本地mock Issue的标签
+        issues = _load_mock_issues()
+        for issue in issues:
+            if issue["number"] == issue_number:
+                for label in labels:
+                    if label not in issue["labels"]:
+                        issue["labels"].append(label)
+                _update_mock_issue(issue_number, {"labels": issue["labels"]})
+                break
+        return True
+
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues/{issue_number}/labels"
+        payload = {"labels": labels}
+        response = httpx.post(url, headers=_get_headers(), json=payload, timeout=10)
+        response.raise_for_status()
+        logger.info(f"成功给Issue #{issue_number}添加标签: {labels}")
+        return True
+    except Exception as e:
+        logger.error(f"给Issue #{issue_number}添加标签失败: {str(e)}")
+        return False
+
+
 def mark_issue_processing(issue_number: int) -> None:
     """
     标记Issue为处理中，添加autorepair:processing标签
     配置缺失时更新本地mock Issue
     """
-    if not _is_github_configured():
-        logger.debug(f"Mock标记Issue #{issue_number}为处理中")
-        # 更新本地mock Issue的标签
-        issues = _load_mock_issues()
-        for issue in issues:
-            if issue["number"] == issue_number and "autorepair:processing" not in issue["labels"]:
-                issue["labels"].append("autorepair:processing")
-                _update_mock_issue(issue_number, {"labels": issue["labels"]})
-                break
-        return
+    add_labels(issue_number, ["autorepair:processing"])
+    return
 
     try:
         url = f"{GITHUB_API_BASE_URL}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues/{issue_number}/labels"

@@ -195,6 +195,89 @@ python scripts/run_demo_server.py
 服务将运行在 http://127.0.0.1:8000
 
 #### 3. 打开浏览器访问业务控制台
+---
+
+## 🚀 Stage 2F 演示流程
+Stage 2F 完成真实 Feishu / GitHub 冒烟测试 + Demo UI 最后收口，为下一阶段接入Doubao做准备。
+
+### 🎯 功能说明
+- 优化Demo UI为真实SupportDesk控制台，包含统计卡片、工单列表、事件流等业务模块
+- 新增环境变量检查脚本，方便演示前配置验证
+- 新增飞书消息卡片冒烟测试
+- 新增GitHub Issue冒烟测试
+- ❗ 本阶段仍不调用LLM、不自动修复、不创建PR
+
+### 完整演示路径
+#### 1. 检查环境配置
+```bash
+python scripts/check_env.py
+```
+输出各配置项状态，不会泄露密钥，最后给出汇总结果：
+- Feishu ready: yes/no
+- GitHub ready: yes/no
+- Ark ready: yes/no
+
+#### 2. 启动业务服务
+```bash
+python scripts/run_demo_server.py
+```
+服务将运行在 http://127.0.0.1:8000
+
+#### 3. 打开UI控制台
+访问 http://127.0.0.1:8000/
+页面已升级为专业SupportDesk控制台，包含：
+- 顶部统计卡片：今日工单、P1紧急工单、SLA风险工单、飞书渠道占比
+- 主操作区：系统健康检查、提交工单、触发Bug等操作按钮
+- 工单列表区：5条mock工单，包含完整字段
+- 最近事件流：4条mock系统事件
+- 响应结果区：展示API返回，异常时提示扫描日志
+
+#### 4. 触发运行时异常
+点击**“提交带 +08:00 SLA 的紧急工单”**按钮，触发时区预埋Bug，返回500错误。
+
+#### 5. 扫描日志生成Incident
+```bash
+python scripts/watch_once.py
+```
+扫描异常日志，生成Incident记录。
+
+#### 6. 测试飞书发送
+```bash
+python scripts/send_test_feishu_card.py
+```
+- 配置完整时真实发送飞书卡片
+- 配置缺失时输出Mock卡片内容
+
+#### 7. 测试GitHub Issue
+```bash
+python scripts/github_smoke_test.py
+```
+完整演示Issue创建、扫描、评论、加标签流程：
+- 配置完整时真实操作GitHub仓库
+- 配置缺失时走Mock Issue Store，流程完整可演示
+
+### 下一阶段预告
+Stage 3A 会接入 Doubao 大模型，实现根因分析和修复计划生成。
+
+---
+
+## 🚀 Stage 2D 演示流程（历史版本）
+Stage 2D 升级为更贴近企业研发协作的「Acme SupportDesk Lite 工单与 SLA 服务」场景，补齐 Mock GitHub Issue 离线闭环，优化演示体验。
+
+### 🎯 演示路线 A：运行时异常场景
+#### 1. 清理演示状态
+```bash
+python scripts/reset_demo_state.py
+```
+会清空日志、Incident记录、监控偏移量和Mock GitHub Issue记录。
+
+#### 2. 启动Demo服务
+```bash
+python scripts/run_demo_server.py
+```
+服务将运行在 http://127.0.0.1:8000
+
+#### 3. 打开浏览器访问业务控制台
 访问 http://127.0.0.1:8000/
 页面包含：
 - 🔥 主线工单场景（4个按钮）
