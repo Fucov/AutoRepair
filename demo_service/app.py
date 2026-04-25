@@ -9,6 +9,7 @@ from .order_service import calculate_order_discount, OrderPreviewRequest
 from .ticket_service import submit_ticket
 from .ticket_repository import get_ticket
 from .logging_config import setup_logging
+from .ui import get_support_desk_html
 
 
 # 初始化日志配置
@@ -44,333 +45,12 @@ async def get_user_profile(user_id: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def index_page():
-    html_content = """
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Acme SupportDesk Lite</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-        }
-        body {
-            background-color: #f5f7fa;
-            color: #333;
-            line-height: 1.6;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .header {
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #eaecef;
-        }
-        .header h1 {
-            color: #2c3e50;
-            font-size: 28px;
-            margin-bottom: 8px;
-        }
-        .header p {
-            color: #666;
-            font-size: 16px;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .stat-card {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        }
-        .stat-card .label {
-            color: #666;
-            font-size: 14px;
-            margin-bottom: 8px;
-        }
-        .stat-card .value {
-            font-size: 28px;
-            font-weight: 600;
-            color: #2c3e50;
-        }
-        .stat-card.warning .value {
-            color: #e67e22;
-        }
-        .stat-card.danger .value {
-            color: #e74c3c;
-        }
-        .section {
-            background: white;
-            padding: 24px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            margin-bottom: 30px;
-        }
-        .section h2 {
-            font-size: 18px;
-            margin-bottom: 20px;
-            color: #2c3e50;
-            border-bottom: 1px solid #f0f2f5;
-            padding-bottom: 10px;
-        }
-        .btn-group {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        .btn-primary {
-            background: #3498db;
-            color: white;
-        }
-        .btn-primary:hover {
-            background: #2980b9;
-        }
-        .btn-warning {
-            background: #e67e22;
-            color: white;
-        }
-        .btn-warning:hover {
-            background: #d35400;
-        }
-        .btn-danger {
-            background: #e74c3c;
-            color: white;
-        }
-        .btn-danger:hover {
-            background: #c0392b;
-        }
-        .ticket-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .ticket-table th, .ticket-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #f0f2f5;
-        }
-        .ticket-table th {
-            background: #f8f9fa;
-            font-weight: 600;
-            font-size: 14px;
-            color: #666;
-        }
-        .priority-p1 {
-            color: #e74c3c;
-            font-weight: 600;
-        }
-        .priority-p2 {
-            color: #e67e22;
-            font-weight: 500;
-        }
-        .priority-p3 {
-            color: #3498db;
-        }
-        .status-open {
-            color: #3498db;
-        }
-        .status-in-progress {
-            color: #e67e22;
-        }
-        .status-resolved {
-            color: #27ae60;
-        }
-        .event-stream {
-            list-style: none;
-        }
-        .event-stream li {
-            padding: 10px 0;
-            border-bottom: 1px solid #f0f2f5;
-            font-size: 14px;
-        }
-        .event-time {
-            color: #999;
-            margin-right: 10px;
-        }
-        #response-area {
-            background: #f8f9fa;
-            padding: 16px;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 13px;
-            white-space: pre-wrap;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-        .error-alert {
-            background: #fdecea;
-            color: #c0392b;
-            padding: 12px;
-            border-radius: 4px;
-            margin-top: 12px;
-            display: none;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Acme SupportDesk Lite</h1>
-            <p>企业客户支持工单与 SLA 管理平台</p>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="label">今日工单</div>
-                <div class="value">128</div>
-            </div>
-            <div class="stat-card danger">
-                <div class="label">P1 紧急工单</div>
-                <div class="value">7</div>
-            </div>
-            <div class="stat-card warning">
-                <div class="label">SLA 风险工单</div>
-                <div class="value">3</div>
-            </div>
-            <div class="stat-card">
-                <div class="label">飞书渠道占比</div>
-                <div class="value">64%</div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>主操作区</h2>
-            <div class="btn-group">
-                <button class="btn btn-primary" onclick="callApi('/health')">系统健康检查</button>
-                <button class="btn btn-primary" onclick="callApi('/ticket/p2')">提交正常 P2 工单</button>
-                <button class="btn btn-warning" onclick="callApi('/ticket/p1-timezone')">提交带 +08:00 SLA 的紧急工单</button>
-                <button class="btn btn-danger" onclick="callApi('/ticket/duplicate')">重复提交同一飞书事件</button>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>工单列表</h2>
-            <table class="ticket-table">
-                <thead>
-                    <tr>
-                        <th>工单编号</th>
-                        <th>客户</th>
-                        <th>来源渠道</th>
-                        <th>优先级</th>
-                        <th>SLA 截止时间</th>
-                        <th>处理人</th>
-                        <th>状态</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>TKT-20260425-001</td>
-                        <td>阿里巴巴</td>
-                        <td>飞书</td>
-                        <td><span class="priority-p1">P1</span></td>
-                        <td>2026-04-25 14:30</td>
-                        <td>张三</td>
-                        <td><span class="status-in-progress">处理中</span></td>
-                    </tr>
-                    <tr>
-                        <td>TKT-20260425-002</td>
-                        <td>腾讯科技</td>
-                        <td>官网</td>
-                        <td><span class="priority-p2">P2</span></td>
-                        <td>2026-04-25 16:00</td>
-                        <td>李四</td>
-                        <td><span class="status-open">待分配</span></td>
-                    </tr>
-                    <tr>
-                        <td>TKT-20260425-003</td>
-                        <td>字节跳动</td>
-                        <td>飞书</td>
-                        <td><span class="priority-p2">P2</span></td>
-                        <td>2026-04-25 15:00</td>
-                        <td>王五</td>
-                        <td><span class="status-in-progress">处理中</span></td>
-                    </tr>
-                    <tr>
-                        <td>TKT-20260425-004</td>
-                        <td>百度</td>
-                        <td>邮件</td>
-                        <td><span class="priority-p3">P3</span></td>
-                        <td>2026-04-26 10:00</td>
-                        <td>赵六</td>
-                        <td><span class="status-resolved">已解决</span></td>
-                    </tr>
-                    <tr>
-                        <td>TKT-20260425-005</td>
-                        <td>华为技术</td>
-                        <td>飞书</td>
-                        <td><span class="priority-p1">P1</span></td>
-                        <td>2026-04-25 13:45</td>
-                        <td>孙七</td>
-                        <td><span class="status-open">待分配</span></td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="section">
-            <h2>最近事件流</h2>
-            <ul class="event-stream">
-                <li><span class="event-time">13:24:12</span>飞书渠道收到客户反馈</li>
-                <li><span class="event-time">13:22:05</span>P1 工单 TKT-20260425-001 进入 SLA 风险</li>
-                <li><span class="event-time">13:20:00</span>AutoRepair 正在监听服务日志</li>
-                <li><span class="event-time">13:18:33</span>最近一次异常将写入 demo_service/logs/app.log</li>
-            </ul>
-        </div>
-
-        <div class="section">
-            <h2>响应结果</h2>
-            <div id="response-area">点击上方按钮查看响应结果</div>
-            <div class="error-alert" id="error-alert">
-                后台已生成 traceback，可运行 python scripts/watch_once.py 扫描并生成 Incident。
-            </div>
-        </div>
-    </div>
-
-    <script>
-        async function callApi(path) {
-            const responseArea = document.getElementById('response-area');
-            const errorAlert = document.getElementById('error-alert');
-            
-            responseArea.textContent = '请求中...';
-            errorAlert.style.display = 'none';
-            
-            try {
-                const response = await fetch(path);
-                const data = await response.json();
-                
-                responseArea.textContent = `Status: ${response.status}\\n\\n${JSON.stringify(data, null, 2)}`;
-                
-                if (response.status >= 500) {
-                    errorAlert.style.display = 'block';
-                }
-            } catch (error) {
-                responseArea.textContent = `请求失败: ${error.message}`;
-            }
-        }
-    </script>
-</body>
-</html>
-    """
-    return HTMLResponse(content=html_content)
+    html_content = get_support_desk_html()
+    # Add anti-caching headers to ensure latest support desk content is always loaded
+    return HTMLResponse(
+        content=html_content,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+    )
 
 
 @app.post("/orders/preview")
@@ -399,3 +79,23 @@ async def get_ticket_endpoint(ticket_id: str = Path(..., description="工单ID")
     if not ticket:
         return JSONResponse(status_code=404, content={"detail": "Ticket not found"})
     return ticket
+
+
+@app.post("/ticket/create")
+async def create_ticket(priority: str = Body(...), sla_hours: Optional[int] = Body(None)):
+    # 模拟工单创建，当sla_hours=8时触发bug
+    if sla_hours == 8:
+        # 故意触发时区bug
+        from datetime import datetime, timedelta
+        import pytz
+        tz = pytz.timezone("Asia/Shanghai")
+        deadline = datetime.now(tz) + timedelta(hours=sla_hours)
+        # 故意调用不存在的方法触发异常
+        deadline.invalid_method()
+    return {"status": "success", "ticket_id": "TK-" + str(datetime.now().timestamp()).split('.')[0], "priority": priority}
+
+
+@app.post("/ticket/replay")
+async def replay_ticket():
+    # 模拟幂等性bug
+    return {"status": "success", "message": "事件已重复提交", "duplicate": True}

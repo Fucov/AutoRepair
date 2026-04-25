@@ -198,6 +198,80 @@ python scripts/run_demo_server.py
 ---
 
 ## 🚀 Stage 2F 演示流程
+Stage 2F-Fix 聚焦演示可信度修复，UI升级为真实企业工单系统，完善环境配置检查和真实API链路验证。
+
+### 📋 真实API排查顺序
+在运行演示前，建议按照以下顺序验证各集成链路是否正常：
+
+1. **检查环境变量配置**
+```bash
+python scripts/check_env.py
+```
+输出各配置项的状态（OK/MISSING），以及Feishu、GitHub、Ark的就绪状态。
+
+2. **测试飞书Token获取**
+```bash
+python scripts/feishu_token_test.py
+```
+验证飞书应用凭证是否有效，是否能成功获取tenant_access_token。
+
+3. **测试飞书文本消息发送**
+```bash
+python scripts/feishu_send_text_test.py
+```
+发送最简单的文本消息，验证最小飞书消息链路是否通畅。
+
+4. **测试飞书卡片消息发送**
+```bash
+python scripts/send_test_feishu_card.py
+```
+发送完整的告警卡片，验证卡片渲染和发送功能。
+
+5. **测试GitHub集成**
+```bash
+python scripts/github_smoke_test.py
+```
+验证GitHub API是否正常工作，包括创建Issue、添加评论、添加标签等功能。
+
+### 🎯 标准演示步骤
+1. **清理演示状态（必须先执行）**
+```bash
+python scripts/reset_demo_state.py
+```
+清空所有历史日志、事件记录和状态文件，确保演示环境干净。
+
+2. **启动业务服务**
+```bash
+python scripts/run_demo_server.py
+```
+服务运行在 http://127.0.0.1:8000，访问首页查看SupportDesk工单管理控制台。
+
+3. **触发Runtime Bug**
+在浏览器页面点击 **"创建带 +08:00 SLA 的紧急工单（触发 Runtime Bug）"** 按钮，服务会返回500错误并生成Traceback日志。
+
+4. **扫描异常生成Incident**
+另开终端执行：
+```bash
+python scripts/watch_once.py
+```
+扫描新增日志，生成Incident记录并发送飞书告警通知。
+
+### ℹ️ 重要说明
+- **Mock mode** 是演示降级方案，仅在配置缺失时使用，不代表真实API集成成功。
+- 最终录屏应尽量使用 **real Feishu** 和 **real GitHub** 模式，展示完整的真实链路。
+- Stage 2F-Fix 仍然不调用LLM、不自动修复Bug、不创建PR，仅完成异常监控和通知链路。
+- `pytest -q` 必须全部通过，`pytest -q -m agent_target` 必须保持失败，不要修复预埋Bug。
+
+---
+
+## 📌 项目约束
+- 禁止接入LLM进行自动修复
+- 禁止修改预埋Bug
+- 禁止自动创建PR
+- 禁止引入React/Vue等前端框架
+- 禁止引入数据库
+- 禁止泄露.env中的任何密钥信息
+- 所有脚本必须显式加载项目根目录的.env文件
 Stage 2F 完成真实 Feishu / GitHub 冒烟测试 + Demo UI 最后收口，为下一阶段接入Doubao做准备。
 
 ### 🎯 功能说明

@@ -1,81 +1,32 @@
-import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import argparse
-from dotenv import load_dotenv
+sys.path.insert(0, sys.path[0] + "/..")
 
-load_dotenv()
-
-def mask_secret(secret: str) -> str:
-    if not secret:
-        return ""
-    if len(secret) <= 8:
-        return "****"
-    return f"{secret[:4]}****{secret[-4:]}"
+from autorepair.config import config
 
 def check_env(strict: bool = False):
-    feishu_vars = [
-        ("FEISHU_APP_ID", os.getenv("FEISHU_APP_ID")),
-        ("FEISHU_APP_SECRET", os.getenv("FEISHU_APP_SECRET")),
-        ("FEISHU_CHAT_ID", os.getenv("FEISHU_CHAT_ID")),
-    ]
+    print("[Feishu]")
+    print(f"FEISHU_APP_ID      {'OK' if config.FEISHU_APP_ID else 'MISSING'}")
+    print(f"FEISHU_APP_SECRET  {'OK' if config.FEISHU_APP_SECRET else 'MISSING'}")
+    print(f"FEISHU_CHAT_ID     {'OK' if config.FEISHU_CHAT_ID else 'MISSING'}")
+    print()
+    print("[GitHub]")
+    print(f"GITHUB_TOKEN       {'OK' if config.GITHUB_TOKEN else 'MISSING'}")
+    print(f"GITHUB_OWNER       {'OK' if config.GITHUB_OWNER else 'MISSING'}")
+    print(f"GITHUB_REPO        {'OK' if config.GITHUB_REPO else 'MISSING'}")
+    print(f"GITHUB_BASE_BRANCH {'OK' if config.GITHUB_BASE_BRANCH else 'MISSING'}")
+    print()
+    print("[Ark]")
+    print(f"ARK_API_KEY        {'OK' if config.ARK_API_KEY else 'MISSING'}")
+    print(f"ARK_MODEL_REPAIR   {'OK' if config.ARK_MODEL_REPAIR else 'MISSING'}")
+    print(f"ARK_MODEL_SUMMARY  {'OK' if config.ARK_MODEL_SUMMARY else 'MISSING'}")
+    print()
+    print("Summary:")
+    print(f"Feishu ready: {'yes' if config.is_feishu_ready() else 'no'}")
+    print(f"GitHub ready: {'yes' if config.is_github_ready() else 'no'}")
+    print(f"Ark ready: {'yes' if config.is_ark_ready() else 'no'}")
     
-    github_vars = [
-        ("GITHUB_TOKEN", os.getenv("GITHUB_TOKEN")),
-        ("GITHUB_OWNER", os.getenv("GITHUB_OWNER")),
-        ("GITHUB_REPO", os.getenv("GITHUB_REPO")),
-        ("GITHUB_BASE_BRANCH", os.getenv("GITHUB_BASE_BRANCH")),
-    ]
-    
-    ark_vars = [
-        ("ARK_API_KEY", os.getenv("ARK_API_KEY")),
-        ("ARK_MODEL_REPAIR", os.getenv("ARK_MODEL_REPAIR")),
-        ("ARK_MODEL_SUMMARY", os.getenv("ARK_MODEL_SUMMARY")),
-    ]
-    
-    print("=== Feishu Configuration ===")
-    feishu_ready = True
-    for name, value in feishu_vars:
-        if value:
-            if "SECRET" in name or "KEY" in name or "TOKEN" in name:
-                print(f"{name}: OK ({mask_secret(value)})")
-            else:
-                print(f"{name}: OK ({value})")
-        else:
-            print(f"{name}: MISSING")
-            feishu_ready = False
-    
-    print("\n=== GitHub Configuration ===")
-    github_ready = True
-    for name, value in github_vars:
-        if value:
-            if "SECRET" in name or "KEY" in name or "TOKEN" in name:
-                print(f"{name}: OK ({mask_secret(value)})")
-            else:
-                print(f"{name}: OK ({value})")
-        else:
-            print(f"{name}: MISSING")
-            github_ready = False
-    
-    print("\n=== Ark Configuration ===")
-    ark_ready = True
-    for name, value in ark_vars:
-        if value:
-            if "SECRET" in name or "KEY" in name or "TOKEN" in name:
-                print(f"{name}: OK ({mask_secret(value)})")
-            else:
-                print(f"{name}: OK ({value})")
-        else:
-            print(f"{name}: MISSING")
-            ark_ready = False
-    
-    print("\n=== Summary ===")
-    print(f"Feishu ready: {'yes' if feishu_ready else 'no'}")
-    print(f"GitHub ready: {'yes' if github_ready else 'no'}")
-    print(f"Ark ready: {'yes' if ark_ready else 'no'}")
-    
-    if strict and not (feishu_ready and github_ready and ark_ready):
+    if strict and not (config.is_feishu_ready() and config.is_github_ready() and config.is_ark_ready()):
         print("\nError: Missing required configuration (--strict mode enabled)")
         exit(1)
 

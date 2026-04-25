@@ -2,14 +2,24 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dotenv import load_dotenv
 from autorepair.adapters.feishu import send_incident_card
 from autorepair.schemas import Incident
-from autorepair.config import FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_CHAT_ID
-
-load_dotenv()
+from autorepair.config import config
 
 def send_test_feishu_card():
+    # 先输出模式
+    if config.is_feishu_ready():
+        print("Feishu mode: real")
+    else:
+        missing = []
+        if not config.FEISHU_APP_ID:
+            missing.append("FEISHU_APP_ID")
+        if not config.FEISHU_APP_SECRET:
+            missing.append("FEISHU_APP_SECRET")
+        if not config.FEISHU_CHAT_ID:
+            missing.append("FEISHU_CHAT_ID")
+        print(f"Feishu mode: mock, reason: missing {', '.join(missing)}")
+    
     # 构造测试Incident
     incident = Incident(
         incident_id="INC-20260425-000000-SMOKE",
@@ -29,15 +39,14 @@ def send_test_feishu_card():
         }
     )
     
-    try:
-        send_incident_card(incident)
-        if all([FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_CHAT_ID]):
-            print("Feishu card sent successfully")
-        else:
-            print("Feishu config missing, fallback to mock card")
-    except Exception as e:
-        print(f"Error sending Feishu card: {str(e)}")
-        print("Fallback to mock card")
+    result = send_incident_card(incident)
+    if result and result.get("mock"):
+        # mock模式下send_incident_card已经输出了卡片，这里不需要重复输出
+        pass
+    elif result:
+        print(f"Feishu card sent successfully, message_id: {result.get('data', {}).get('message_id')}")
+    else:
+        print("Feishu card send failed, fallback to local notification")
 
 if __name__ == "__main__":
     send_test_feishu_card()

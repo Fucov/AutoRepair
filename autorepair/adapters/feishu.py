@@ -1,13 +1,9 @@
 import logging
+import json
 from typing import Dict, Optional
 import httpx
 
-from autorepair.config import (
-    FEISHU_API_BASE_URL,
-    FEISHU_APP_ID,
-    FEISHU_APP_SECRET,
-    FEISHU_CHAT_ID
-)
+from autorepair.config import config
 from autorepair.schemas import Incident
 
 logger = logging.getLogger(__name__)
@@ -139,14 +135,16 @@ def build_incident_card_payload(incident: Incident) -> Dict:
     }
 
 
-def send_incident_card(incident: Incident) -> None:
+def send_incident_card(incident: Incident) -> Optional[Dict]:
     """
     发送飞书告警卡片
     配置缺失时打印模拟卡片，不中断流程
+    返回发送结果或None
     """
     # 检查配置是否完整
-    if not all([FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_CHAT_ID]):
+    if not config.is_feishu_ready():
         # 配置不完整，输出模拟卡片
+        logger.info("Feishu mode: mock, reason: missing configuration")
         summary = incident.error_summary
         print("\n" + "=" * 60)
         print("📧 Mock Feishu Card (配置不完整，仅模拟发送)")
@@ -165,16 +163,17 @@ def send_incident_card(incident: Incident) -> None:
         print(f"创建时间: {incident.created_at}")
         print("ℹ️ 当前阶段：已接收问题，等待 Agent 分析与自动修复")
         print("=" * 60 + "\n")
-        return
+        return {"mock": True, "incident_id": incident.incident_id}
 
     try:
+        logger.info("Feishu mode: real")
         # 第一步：获取tenant_access_token
-        token_url = f"{FEISHU_API_BASE_URL}/auth/v3/tenant_access_token/internal"
+        token_url = f"{config.FEISHU_API_BASE_URL}/auth/v3/tenant_access_token/internal"
         token_response = httpx.post(
             token_url,
             json={
-                "app_id": FEISHU_APP_ID,
-                "app_secret": FEISHU_APP_SECRET
+                "app_id": config.FEISHU_APP_ID,
+                "app_secret": config.FEISHU_APP_SECRET
             },
             timeout=5
         )
@@ -183,17 +182,17 @@ def send_incident_card(incident: Incident) -> None:
         access_token = token_data.get("tenant_access_token")
         if not access_token:
             logger.error("获取飞书tenant_access_token失败")
-            return
+            return None
 
         # 第二步：发送消息
-        send_url = f"{FEISHU_API_BASE_URL}/im/v1/messages?receive_id_type=chat_id"
+        send_url = f"{config.FEISHU_API_BASE_URL}/im/v1/messages?receive_id_type=chat_id"
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json; charset=utf-8"
         }
         payload = {
-            "receive_id": FEISHU_CHAT_ID,
-            "content": build_incident_card_payload(incident),
+            "receive_id": config.FEISHU_CHAT_ID,
+            "content": json.dumps(build_incident_card_payload(incident)["card"]),
             "msg_type": "interactive"
         }
 
@@ -204,7 +203,9 @@ def send_incident_card(incident: Incident) -> None:
             timeout=10
         )
         send_response.raise_for_status()
-        logger.info(f"飞书告警卡片发送成功，Incident ID: {incident.incident_id}")
+        send_data = send_response.json()
+        logger.info(f"飞书告警卡片发送成功，Incident ID: {incident.incident_id}, Message ID: {send_data.get('data', {}).get('message_id')}")
+        return send_data
 
     except Exception as e:
         logger.error(f"发送飞书卡片失败: {str(e)}，已降级为本地通知")
@@ -218,3 +219,65 @@ def send_incident_card(incident: Incident) -> None:
         print(f"错误位置: {summary.suspected_file}:{summary.line_no}")
         print(f"错误信息: {summary.message}")
         print("=" * 60 + "\n")
+        return None
+
+
+def get_tenant_access_token() -> tuple[Optional[str], Optional[str]]:
+    """获取飞书tenant_access_token，用于测试"""
+    if not config.is_feishu_ready():
+        return None, "Missing Feishu configuration"
+    
+    try:
+        token_url = f"{config.FEISHU_API_BASE_URL}/auth/v3/tenant_access_token/internal"
+        token_response = httpx.post(
+            token_url,
+            json={
+                "app_id": config.FEISHU_APP_ID,
+                "app_secret": config.FEISHU_APP_SECRET
+            },
+            timeout=5
+        )
+        token_response.raise_for_status()
+        token_data = token_response.json()
+        
+        if token_data.get("code") == 0:
+            return token_data.get("tenant_access_token"), None
+        else:
+            return None, f"Feishu API error: {token_data.get('code')} {token_data.get('msg')}"
+    
+    except Exception as e:
+        return None, f"Request failed: {str(e)}"
+
+
+def send_text_message(content: str) -> tuple[Optional[Dict], Optional[str]]:
+    """发送纯文本消息，用于测试"""
+    if not config.is_feishu_ready():
+        return {"mock": True, "content": content}, None
+    
+    token, err = get_tenant_access_token()
+    if err:
+        return None, err
+    
+    try:
+        send_url = f"{config.FEISHU_API_BASE_URL}/im/v1/messages?receive_id_type=chat_id"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8"
+        }
+        payload = {
+            "receive_id": config.FEISHU_CHAT_ID,
+            "content": json.dumps({"text": content}),
+            "msg_type": "text"
+        }
+        
+        send_response = httpx.post(
+            send_url,
+            headers=headers,
+            json=payload,
+            timeout=10
+        )
+        send_response.raise_for_status()
+        return send_response.json(), None
+    
+    except Exception as e:
+        return None, str(e)

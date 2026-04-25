@@ -85,6 +85,38 @@ def _get_headers() -> Dict:
     }
 
 
+def create_label(name: str, color: str = "ededed", description: str = "") -> bool:
+    """
+    创建GitHub标签，如果标签已存在则返回True
+    配置缺失时返回True（mock模式）
+    """
+    if not _is_github_configured():
+        return True
+    
+    try:
+        # 先检查标签是否存在
+        url = f"{GITHUB_API_BASE_URL}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/labels/{name}"
+        response = httpx.get(url, headers=_get_headers(), timeout=5)
+        if response.status_code == 200:
+            # 标签已存在
+            return True
+        
+        # 标签不存在，创建新标签
+        url = f"{GITHUB_API_BASE_URL}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/labels"
+        payload = {
+            "name": name,
+            "color": color.lstrip('#'),  # GitHub API不需要#前缀
+            "description": description
+        }
+        response = httpx.post(url, headers=_get_headers(), json=payload, timeout=5)
+        response.raise_for_status()
+        logger.info(f"成功创建GitHub标签: {name}")
+        return True
+    except Exception as e:
+        logger.error(f"创建GitHub标签失败: {str(e)}")
+        return False
+
+
 def list_open_bug_issues() -> List[GitHubIssue]:
     """
     获取所有打开的Bug Issue
