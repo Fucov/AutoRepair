@@ -11,455 +11,601 @@ def get_support_desk_html():
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
         }
         body {
-            background-color: #f5f7fa;
-            padding: 20px;
+            min-height: 100vh;
+            background: #f4f6f8;
+            color: #1f2933;
         }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
+        .shell {
+            min-height: 100vh;
+            display: grid;
+            grid-template-columns: 220px 1fr;
         }
-        /* Header */
-        .header {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            margin-bottom: 20px;
+        .sidebar {
+            background: #17212f;
+            color: #d7dee8;
+            padding: 20px 14px;
+        }
+        .brand-mark {
+            height: 40px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0 10px;
+            margin-bottom: 22px;
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 15px;
+        }
+        .brand-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: #37b24d;
+            box-shadow: 0 0 0 4px rgba(55, 178, 77, 0.18);
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 12px;
+            border-radius: 6px;
+            color: #b8c2cf;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+        .nav-item.active {
+            background: #243246;
+            color: #ffffff;
+        }
+        .nav-icon {
+            width: 9px;
+            height: 9px;
+            border-radius: 2px;
+            background: currentColor;
+            opacity: 0.8;
+        }
+        .content {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .topbar {
+            min-height: 66px;
+            background: #ffffff;
+            border-bottom: 1px solid #dce3ea;
+            padding: 14px 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 20px;
         }
-        .header-left h1 {
-            font-size: 24px;
-            color: #1d2129;
-            margin-bottom: 4px;
+        .topbar-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #111827;
         }
-        .header-left p {
-            color: #86909c;
-            font-size: 14px;
+        .topbar-meta {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
-        .header-right {
-            text-align: right;
-            color: #4e5969;
-            font-size: 13px;
-            line-height: 1.6;
+        .meta-pill {
+            border: 1px solid #d9e2ec;
+            background: #f8fafc;
+            color: #3e4c59;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 12px;
+            white-space: nowrap;
         }
-        /* KPI Cards */
-        .kpi-row {
+        .workspace {
+            padding: 22px 24px 18px;
+        }
+        .kpi-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+        .panel,
+        .kpi-card {
+            background: #ffffff;
+            border: 1px solid #dce3ea;
+            border-radius: 8px;
         }
         .kpi-card {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            transition: all 0.3s ease;
-            border-left: 4px solid transparent;
+            padding: 14px;
+            min-height: 92px;
         }
-        .kpi-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-        }
-        .kpi-card:nth-child(1) { border-left-color: #168cff; }
-        .kpi-card:nth-child(2) { border-left-color: #f53f3f; }
-        .kpi-card:nth-child(3) { border-left-color: #ff7d00; }
-        .kpi-card:nth-child(4) { border-left-color: #00b42a; }
-        .kpi-title {
-            color: #86909c;
-            font-size: 13px;
+        .kpi-label {
+            color: #627386;
+            font-size: 12px;
             margin-bottom: 8px;
-            display: flex;
-            align-items: center;
         }
         .kpi-value {
-            font-size: 28px;
-            font-weight: 600;
+            font-size: 25px;
+            font-weight: 700;
+            color: #111827;
+            line-height: 1.15;
         }
-        .kpi-card:nth-child(1) .kpi-value { color: #168cff; }
-        .kpi-card:nth-child(2) .kpi-value { color: #f53f3f; }
-        .kpi-card:nth-child(3) .kpi-value { color: #ff7d00; }
-        .kpi-card:nth-child(4) .kpi-value { color: #00b42a; }
-        /* Main Content */
-        .main-content {
+        .kpi-note {
+            color: #8291a3;
+            font-size: 12px;
+            margin-top: 6px;
+        }
+        .layout-grid {
             display: grid;
-            grid-template-columns: 65% 35%;
-            gap: 20px;
-            margin-bottom: 20px;
+            grid-template-columns: minmax(0, 1.8fr) minmax(300px, 0.9fr);
+            gap: 16px;
+            align-items: start;
         }
-        .card {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            padding: 20px;
-        }
-        .card-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: #1d2129;
+        .panel {
             margin-bottom: 16px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #e5e6eb;
+            overflow: hidden;
+        }
+        .panel-header {
             display: flex;
+            justify-content: space-between;
             align-items: center;
-            gap: 8px;
+            gap: 12px;
+            padding: 15px 16px;
+            border-bottom: 1px solid #e5eaf0;
         }
-        .card-title::before {
-            content: "";
-            width: 4px;
-            height: 16px;
-            background: #168cff;
-            border-radius: 2px;
+        .panel-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #1f2933;
         }
-        /* Ticket Table */
+        .panel-subtitle {
+            font-size: 12px;
+            color: #8291a3;
+            margin-top: 3px;
+        }
+        .table-wrap {
+            overflow-x: auto;
+        }
         .ticket-table {
             width: 100%;
             border-collapse: collapse;
+            min-width: 860px;
         }
         .ticket-table th {
             text-align: left;
-            padding: 10px;
-            background: #f7f8fa;
-            color: #4e5969;
-            font-size: 13px;
-            font-weight: 500;
-        }
-        .ticket-table tr {
-            transition: background-color 0.2s ease;
-        }
-        .ticket-table tr:hover {
-            background-color: #f7f8fa;
+            padding: 11px 12px;
+            color: #627386;
+            background: #f7f9fb;
+            font-size: 12px;
+            font-weight: 600;
+            border-bottom: 1px solid #e5eaf0;
         }
         .ticket-table td {
-            padding: 12px 10px;
-            border-bottom: 1px solid #e5e6eb;
+            padding: 12px;
+            border-bottom: 1px solid #edf1f5;
             font-size: 13px;
-            color: #1d2129;
+            color: #25313f;
+            white-space: nowrap;
         }
         .ticket-table tr:last-child td {
             border-bottom: none;
         }
-        .priority-p1 {
-            color: #f53f3f;
-            font-weight: 500;
+        .ticket-id {
+            color: #1264a3;
+            font-weight: 700;
         }
-        .priority-p2 {
-            color: #ff7d00;
-            font-weight: 500;
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            min-height: 22px;
+            padding: 3px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
         }
-        .priority-p3 {
-            color: #00b42a;
-            font-weight: 500;
+        .p1 { color: #b42318; background: #fff1f0; }
+        .p2 { color: #b45309; background: #fff7ed; }
+        .p3 { color: #166534; background: #edf7ed; }
+        .state-risk { color: #b42318; background: #fff1f0; }
+        .state-open { color: #1d4ed8; background: #eff6ff; }
+        .state-pending { color: #92400e; background: #fffbeb; }
+        .state-done { color: #166534; background: #edf7ed; }
+        .side-list {
+            padding: 0 16px 8px;
         }
-        .status-sla-risk {
-            color: #f53f3f;
+        .risk-item,
+        .event-item {
+            padding: 13px 0;
+            border-bottom: 1px solid #edf1f5;
         }
-        .status-processing {
-            color: #168cff;
-        }
-        .status-pending {
-            color: #ff7d00;
-        }
-        .status-resolved {
-            color: #00b42a;
-        }
-        /* Status Panel */
-        .status-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid #f2f3f5;
-            font-size: 13px;
-        }
-        .status-item:last-child {
+        .risk-item:last-child,
+        .event-item:last-child {
             border-bottom: none;
         }
-        .status-label {
-            color: #86909c;
+        .risk-main,
+        .event-main {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 13px;
+            color: #25313f;
+            margin-bottom: 5px;
         }
-        .status-value.running {
-            color: #00b42a;
-            font-weight: 500;
+        .risk-detail,
+        .event-detail {
+            color: #718096;
+            font-size: 12px;
+            line-height: 1.45;
         }
-        /* Operation Panel */
-        .operation-panel {
-            margin-bottom: 20px;
-        }
-        .btn-group {
+        .actions {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 12px;
+            padding: 16px;
         }
-        .btn {
-            padding: 12px 16px;
+        .action {
+            border: 1px solid #dce3ea;
+            background: #ffffff;
+            border-radius: 8px;
+            padding: 13px;
+            min-height: 106px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .action button {
+            width: 100%;
+            min-height: 36px;
             border: none;
             border-radius: 6px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .btn-primary {
-            background: #168cff;
-            color: white;
-        }
-        .btn-primary:hover {
-            background: #0e77d9;
-        }
-        .btn-danger {
-            background: #f53f3f;
-            color: white;
-        }
-        .btn-danger:hover {
-            background: #d93636;
-        }
-        .btn-secondary {
-            background: #f2f3f5;
-            color: #4e5969;
-        }
-        .btn-secondary:hover {
-            background: #e5e6eb;
-        }
-        .btn-desc {
-            font-size: 12px;
-            color: #86909c;
-            margin-top: 4px;
-            text-align: center;
-        }
-        /* Event Stream */
-        .event-stream {
-            margin-bottom: 20px;
-        }
-        .event-item {
-            padding: 8px 0;
+            background: #1264a3;
+            color: #ffffff;
             font-size: 13px;
-            color: #4e5969;
-            border-bottom: 1px solid #f2f3f5;
+            font-weight: 700;
+            cursor: pointer;
         }
-        .event-time {
-            color: #86909c;
-            margin-right: 8px;
+        .action button.secondary {
+            background: #edf2f7;
+            color: #25313f;
         }
-        /* Response Area */
+        .action button:hover {
+            filter: brightness(0.96);
+        }
+        .action-desc {
+            font-size: 12px;
+            color: #718096;
+            line-height: 1.45;
+        }
         .response-area {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            padding: 20px;
+            padding: 16px;
         }
         .response-status {
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 12px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #25313f;
+            margin-bottom: 10px;
         }
         .response-status.error {
-            color: #f53f3f;
+            color: #b42318;
         }
         .response-json {
-            background: #f7f8fa;
+            background: #101828;
+            color: #e5e7eb;
+            border-radius: 7px;
             padding: 12px;
-            border-radius: 6px;
-            font-family: monospace;
-            font-size: 13px;
-            overflow-x: auto;
-            max-height: 200px;
+            font-family: "SFMono-Regular", Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            min-height: 96px;
+            max-height: 220px;
+            overflow: auto;
         }
         .error-tip {
-            margin-top: 12px;
-            padding: 10px;
+            display: none;
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-radius: 7px;
             background: #fff1f0;
-            border: 1px solid #ffccc7;
-            border-radius: 6px;
-            color: #cf1322;
+            color: #b42318;
+            border: 1px solid #ffd6d1;
             font-size: 13px;
+        }
+        .system-bar {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            color: #718096;
+            font-size: 12px;
+            padding: 2px 2px 0;
+        }
+        @media (max-width: 1100px) {
+            .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .layout-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 760px) {
+            .shell { grid-template-columns: 1fr; }
+            .sidebar { display: none; }
+            .topbar { align-items: flex-start; flex-direction: column; }
+            .topbar-meta { justify-content: flex-start; }
+            .workspace { padding: 16px; }
+            .kpi-grid { grid-template-columns: 1fr; }
+            .actions { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <div class="header-left">
-                <h1>Acme SupportDesk Lite</h1>
-                <p>企业客户支持工单与 SLA 管理平台</p>
+    <div class="shell">
+        <aside class="sidebar">
+            <div class="brand-mark">
+                <span class="brand-dot"></span>
+                <span>SupportDesk</span>
             </div>
-            <div class="header-right">
-                <div>环境：Local Demo</div>
-                <div>Agent 接入：Black-box Log Watcher</div>
-                <div>服务 ID：supportdesk-lite</div>
-            </div>
-        </div>
+            <nav>
+                <div class="nav-item active"><span class="nav-icon"></span>工单总览</div>
+                <div class="nav-item"><span class="nav-icon"></span>SLA 风险</div>
+                <div class="nav-item"><span class="nav-icon"></span>飞书渠道</div>
+                <div class="nav-item"><span class="nav-icon"></span>客户租户</div>
+                <div class="nav-item"><span class="nav-icon"></span>系统设置</div>
+            </nav>
+        </aside>
 
-        <!-- KPI 指标区 -->
-        <div class="kpi-row">
-            <div class="kpi-card">
-                <div class="kpi-title">今日工单</div>
-                <div class="kpi-value">128</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-title">P1 紧急工单</div>
-                <div class="kpi-value">7</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-title">SLA 风险工单</div>
-                <div class="kpi-value">3</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-title">飞书渠道占比</div>
-                <div class="kpi-value">64%</div>
-            </div>
-        </div>
-
-        <!-- 主体双栏布局 -->
-        <div class="main-content">
-            <!-- 左侧：工单队列 -->
-            <div class="card">
-                <h2 class="card-title">工单队列</h2>
-                <table class="ticket-table">
-                    <thead>
-                        <tr>
-                            <th>工单编号</th>
-                            <th>客户</th>
-                            <th>来源渠道</th>
-                            <th>优先级</th>
-                            <th>SLA 截止时间</th>
-                            <th>处理人</th>
-                            <th>状态</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>TK-1024</td>
-                            <td>北航实验室</td>
-                            <td>飞书</td>
-                            <td><span class="priority-p1">P1</span></td>
-                            <td>今天 18:00</td>
-                            <td>oncall-zhang</td>
-                            <td><span class="status-sla-risk">SLA 风险</span></td>
-                        </tr>
-                        <tr>
-                            <td>TK-1025</td>
-                            <td>Acme 财务部</td>
-                            <td>Web</td>
-                            <td><span class="priority-p2">P2</span></td>
-                            <td>明天 12:00</td>
-                            <td>support-li</td>
-                            <td><span class="status-processing">处理中</span></td>
-                        </tr>
-                        <tr>
-                            <td>TK-1026</td>
-                            <td>华北客户A</td>
-                            <td>飞书</td>
-                            <td><span class="priority-p1">P1</span></td>
-                            <td>今天 16:30</td>
-                            <td>support-wang</td>
-                            <td><span class="status-pending">待分配</span></td>
-                        </tr>
-                        <tr>
-                            <td>TK-1027</td>
-                            <td>内部测试租户</td>
-                            <td>API</td>
-                            <td><span class="priority-p3">P3</span></td>
-                            <td>后天 10:00</td>
-                            <td>bot</td>
-                            <td><span class="status-resolved">已解决</span></td>
-                        </tr>
-                        <tr>
-                            <td>TK-1028</td>
-                            <td>客服质检组</td>
-                            <td>飞书</td>
-                            <td><span class="priority-p2">P2</span></td>
-                            <td>明天 18:00</td>
-                            <td>support-chen</td>
-                            <td><span class="status-pending">待确认</span></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- 右侧：服务运行状态 -->
-            <div class="card">
-                <h2 class="card-title">服务运行状态</h2>
-                <div class="status-item">
-                    <span class="status-label">服务状态</span>
-                    <span class="status-value running">运行中</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">日志监听</span>
-                    <span class="status-value">demo_service/logs/app.log</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">仓库路径</span>
-                    <span class="status-value">当前仓库</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">健康检查</span>
-                    <span class="status-value">/health</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">AutoRepair 状态</span>
-                    <span class="status-value">等待扫描</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- 操作面板 -->
-        <div class="card operation-panel">
-            <h2 class="card-title">演示操作</h2>
-            <div class="btn-group">
+        <main class="content">
+            <header class="topbar">
                 <div>
-                    <button class="btn btn-primary" onclick="callApi('/health')">系统健康检查</button>
-                    <div class="btn-desc">检查服务运行状态</div>
+                    <div class="topbar-title">Acme SupportDesk Lite</div>
+                    <div class="panel-subtitle">企业客户支持工单与 SLA 管理后台</div>
                 </div>
-                <div>
-                    <button class="btn btn-secondary" onclick="callApi('/ticket/create', 'POST', {'priority': 'P2'})">创建正常 P2 工单</button>
-                    <div class="btn-desc">生成标准服务工单</div>
+                <div class="topbar-meta">
+                    <span class="meta-pill">当前租户：Demo Tenant</span>
+                    <span class="meta-pill">环境：Local Demo</span>
+                    <span class="meta-pill">Agent 接入：Black-box Log Watcher</span>
                 </div>
-                <div>
-                    <button class="btn btn-danger" onclick="callApi('/ticket/create', 'POST', {'priority': 'P1', 'sla_hours': 8})">创建带 +08:00 SLA 的紧急工单（触发 Runtime Bug）</button>
-                    <div class="btn-desc">触发预设异常用于演示</div>
-                </div>
-                <div>
-                    <button class="btn btn-secondary" onclick="callApi('/ticket/replay', 'POST')">重复提交同一飞书事件（模拟幂等性缺陷）</button>
-                    <div class="btn-desc">测试重复事件处理逻辑</div>
-                </div>
-            </div>
-        </div>
+            </header>
 
-        <!-- 最近事件流 -->
-        <div class="card event-stream">
-            <h2 class="card-title">最近事件流</h2>
-            <div class="event-item">
-                <span class="event-time">09:30</span>飞书渠道收到客户反馈
-            </div>
-            <div class="event-item">
-                <span class="event-time">09:35</span>P1 工单进入 SLA 风险
-            </div>
-            <div class="event-item">
-                <span class="event-time">09:36</span>SupportDesk 服务写入访问日志
-            </div>
-            <div class="event-item">
-                <span class="event-time">09:38</span>AutoRepair 正在监听服务日志
-            </div>
-            <div class="event-item">
-                <span class="event-time">09:40</span>新异常会被写入 demo_service/logs/app.log
-            </div>
-        </div>
+            <section class="workspace">
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-label">今日新工单</div>
+                        <div class="kpi-value">128</div>
+                        <div class="kpi-note">较昨日 +12</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">P1 工单</div>
+                        <div class="kpi-value">7</div>
+                        <div class="kpi-note">3 条等待响应</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">SLA 风险</div>
+                        <div class="kpi-value">3</div>
+                        <div class="kpi-note">最近 30 分钟</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">飞书事件积压</div>
+                        <div class="kpi-value">14</div>
+                        <div class="kpi-note">含 2 条待重试</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">平均响应时长</div>
+                        <div class="kpi-value">4.8m</div>
+                        <div class="kpi-note">SLA 目标 5m</div>
+                    </div>
+                </div>
 
-        <!-- API 响应结果区 -->
-        <div class="response-area">
-            <h2 class="card-title">API 响应结果</h2>
-            <div id="response-status" class="response-status">等待操作...</div>
-            <div id="response-json" class="response-json">{}</div>
-            <div id="error-tip" class="error-tip" style="display: none;">
-                服务端已生成 traceback。请运行 python scripts/watch_once.py 扫描并生成 Incident。
-            </div>
-        </div>
+                <div class="layout-grid">
+                    <section class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <div class="panel-title">工单队列</div>
+                                <div class="panel-subtitle">跨渠道客户问题处理视图</div>
+                            </div>
+                            <span class="meta-pill">Demo Tenant</span>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="ticket-table">
+                                <thead>
+                                    <tr>
+                                        <th>工单编号</th>
+                                        <th>客户</th>
+                                        <th>来源</th>
+                                        <th>优先级</th>
+                                        <th>SLA</th>
+                                        <th>处理人</th>
+                                        <th>状态</th>
+                                        <th>最近更新</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td class="ticket-id">TK-1024</td>
+                                        <td>北航实验室</td>
+                                        <td>飞书</td>
+                                        <td><span class="badge p1">P1</span></td>
+                                        <td>今天 18:00</td>
+                                        <td>oncall-zhang</td>
+                                        <td><span class="badge state-risk">SLA 风险</span></td>
+                                        <td>09:40</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ticket-id">TK-1025</td>
+                                        <td>Acme 财务部</td>
+                                        <td>Web</td>
+                                        <td><span class="badge p2">P2</span></td>
+                                        <td>明天 12:00</td>
+                                        <td>support-li</td>
+                                        <td><span class="badge state-open">处理中</span></td>
+                                        <td>09:31</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ticket-id">TK-1026</td>
+                                        <td>华北客户A</td>
+                                        <td>飞书</td>
+                                        <td><span class="badge p1">P1</span></td>
+                                        <td>今天 16:30</td>
+                                        <td>support-wang</td>
+                                        <td><span class="badge state-pending">待分配</span></td>
+                                        <td>09:26</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ticket-id">TK-1027</td>
+                                        <td>内部测试租户</td>
+                                        <td>API</td>
+                                        <td><span class="badge p3">P3</span></td>
+                                        <td>后天 10:00</td>
+                                        <td>bot</td>
+                                        <td><span class="badge state-done">已解决</span></td>
+                                        <td>09:20</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ticket-id">TK-1028</td>
+                                        <td>客服质检组</td>
+                                        <td>飞书</td>
+                                        <td><span class="badge p2">P2</span></td>
+                                        <td>明天 18:00</td>
+                                        <td>support-chen</td>
+                                        <td><span class="badge state-pending">待确认</span></td>
+                                        <td>09:12</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ticket-id">TK-1029</td>
+                                        <td>华东零售事业部</td>
+                                        <td>邮件</td>
+                                        <td><span class="badge p2">P2</span></td>
+                                        <td>今天 22:00</td>
+                                        <td>support-lin</td>
+                                        <td><span class="badge state-open">处理中</span></td>
+                                        <td>08:58</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ticket-id">TK-1030</td>
+                                        <td>渠道集成团队</td>
+                                        <td>API</td>
+                                        <td><span class="badge p3">P3</span></td>
+                                        <td>周五 17:00</td>
+                                        <td>support-chen</td>
+                                        <td><span class="badge state-open">排查中</span></td>
+                                        <td>08:41</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ticket-id">TK-1031</td>
+                                        <td>上海运营中心</td>
+                                        <td>飞书</td>
+                                        <td><span class="badge p1">P1</span></td>
+                                        <td>今天 15:45</td>
+                                        <td>oncall-zhang</td>
+                                        <td><span class="badge state-risk">即将超时</span></td>
+                                        <td>08:33</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <aside>
+                        <section class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <div class="panel-title">SLA 风险</div>
+                                    <div class="panel-subtitle">即将超时工单</div>
+                                </div>
+                            </div>
+                            <div class="side-list">
+                                <div class="risk-item">
+                                    <div class="risk-main"><strong>TK-1031</strong><span>剩余 42m</span></div>
+                                    <div class="risk-detail">上海运营中心，飞书渠道 P1，待 oncall 响应。</div>
+                                </div>
+                                <div class="risk-item">
+                                    <div class="risk-main"><strong>TK-1026</strong><span>剩余 1h 18m</span></div>
+                                    <div class="risk-detail">华北客户A，客户连续催办，等待分配处理人。</div>
+                                </div>
+                                <div class="risk-item">
+                                    <div class="risk-main"><strong>TK-1024</strong><span>剩余 2h 36m</span></div>
+                                    <div class="risk-detail">北航实验室，紧急客户问题，SLA 计时中。</div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <div class="panel-title">飞书事件流</div>
+                                    <div class="panel-subtitle">消息、重试、审批通知</div>
+                                </div>
+                            </div>
+                            <div class="side-list">
+                                <div class="event-item">
+                                    <div class="event-main"><strong>09:40</strong><span>消息入站</span></div>
+                                    <div class="event-detail">飞书渠道收到 P1 客户问题，已进入工单队列。</div>
+                                </div>
+                                <div class="event-item">
+                                    <div class="event-main"><strong>09:36</strong><span>事件重试</span></div>
+                                    <div class="event-detail">最近一条飞书回调事件等待重新处理。</div>
+                                </div>
+                                <div class="event-item">
+                                    <div class="event-main"><strong>09:28</strong><span>审批通知</span></div>
+                                    <div class="event-detail">P1 升级审批已推送给值班组。</div>
+                                </div>
+                                <div class="event-item">
+                                    <div class="event-main"><strong>09:12</strong><span>同步完成</span></div>
+                                    <div class="event-detail">客户租户联系人信息已同步。</div>
+                                </div>
+                            </div>
+                        </section>
+                    </aside>
+                </div>
+
+                <section class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">操作区</div>
+                            <div class="panel-subtitle">常用业务动作</div>
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <div class="action">
+                            <button onclick="callApi('/ticket/create', 'POST', {'priority': 'P1', 'sla_hours': 8})">创建 P1 飞书渠道工单</button>
+                            <div class="action-desc">创建一个来自飞书渠道的紧急客户问题。</div>
+                        </div>
+                        <div class="action">
+                            <button class="secondary" onclick="callApi('/ticket/replay', 'POST')">重试飞书事件同步</button>
+                            <div class="action-desc">重新处理最近一条飞书事件。</div>
+                        </div>
+                        <div class="action">
+                            <button class="secondary" onclick="callApi('/ticket/create', 'POST', {'priority': 'P2'})">批量刷新 SLA 状态</button>
+                            <div class="action-desc">刷新即将到期工单的 SLA 状态。</div>
+                        </div>
+                        <div class="action">
+                            <button class="secondary" onclick="callApi('/health')">系统健康检查</button>
+                            <div class="action-desc">检查服务健康状态。</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="panel-title">API 响应结果</div>
+                            <div class="panel-subtitle">当前操作返回的 status 与 JSON</div>
+                        </div>
+                    </div>
+                    <div class="response-area">
+                        <div id="response-status" class="response-status">Status: 等待操作</div>
+                        <pre id="response-json" class="response-json">{}</pre>
+                        <div id="error-tip" class="error-tip">服务端处理失败，异常已写入服务日志。</div>
+                    </div>
+                </section>
+
+                <footer class="system-bar">
+                    <span>Service ID: supportdesk-lite</span>
+                    <span>Log: demo_service/logs/app.log</span>
+                    <span>Repo: current repository</span>
+                </footer>
+            </section>
+        </main>
     </div>
 
     <script>
@@ -467,21 +613,21 @@ def get_support_desk_html():
             const statusEl = document.getElementById('response-status');
             const jsonEl = document.getElementById('response-json');
             const errorTipEl = document.getElementById('error-tip');
-            
-            statusEl.textContent = '加载中...';
+
+            statusEl.textContent = 'Status: loading';
             statusEl.className = 'response-status';
             errorTipEl.style.display = 'none';
-            
+
             try {
                 const options = { method };
                 if (body) {
                     options.headers = { 'Content-Type': 'application/json' };
                     options.body = JSON.stringify(body);
                 }
-                
+
                 const res = await fetch(endpoint, options);
                 const data = await res.json();
-                
+
                 statusEl.textContent = `Status: ${res.status}`;
                 if (res.status >= 400) {
                     statusEl.classList.add('error');
@@ -489,10 +635,10 @@ def get_support_desk_html():
                 if (res.status >= 500) {
                     errorTipEl.style.display = 'block';
                 }
-                
+
                 jsonEl.textContent = JSON.stringify(data, null, 2);
             } catch (err) {
-                statusEl.textContent = `请求失败: ${err.message}`;
+                statusEl.textContent = `Status: request failed`;
                 statusEl.classList.add('error');
                 jsonEl.textContent = JSON.stringify({ error: err.message }, null, 2);
             }
