@@ -15,20 +15,18 @@ class Config:
     FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET")
     FEISHU_CHAT_ID = os.getenv("FEISHU_CHAT_ID")
     
-    # GitHub配置
-    GITHUB_API_BASE_URL = os.getenv("GITHUB_API_BASE_URL", "https://api.github.com")
-    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-    GITHUB_OWNER = os.getenv("GITHUB_OWNER")
-    GITHUB_REPO = os.getenv("GITHUB_REPO", "FeishuAutoRepair")
-    GITHUB_BASE_BRANCH = os.getenv("GITHUB_BASE_BRANCH", "main")
-    
     # Ark配置
     ARK_API_KEY = os.getenv("ARK_API_KEY")
     ARK_BASE_URL = os.getenv("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
     ARK_MODEL_REPAIR = os.getenv("ARK_MODEL_REPAIR")
     ARK_MODEL_SUMMARY = os.getenv("ARK_MODEL_SUMMARY")
+
+    # GitHub配置
+    GITHUB_API_BASE_URL = os.getenv("GITHUB_API_BASE_URL", "https://api.github.com")
+    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+    GITHUB_OWNER = os.getenv("GITHUB_OWNER")
+    GITHUB_REPO = os.getenv("GITHUB_REPO")
     
-    # 其他配置
     TEST_CMD = os.getenv("TEST_CMD", "pytest -q")
     
     @classmethod
@@ -57,5 +55,3 @@ GITHUB_API_BASE_URL = config.GITHUB_API_BASE_URL
 GITHUB_TOKEN = config.GITHUB_TOKEN
 GITHUB_OWNER = config.GITHUB_OWNER
 GITHUB_REPO = config.GITHUB_REPO
-GITHUB_BASE_BRANCH = config.GITHUB_BASE_BRANCH
-TEST_CMD = config.TEST_CMD

@@ -1,12 +1,21 @@
 import logging
 import json
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import httpx
-
 from autorepair.config import config
 from autorepair.schemas import Incident
 
 logger = logging.getLogger(__name__)
+
+# 飞书卡片模板ID配置
+FEISHU_CARD_TEMPLATES = {
+    "incident_detected": "AAqee8J5gdip5",
+    "repair_plan_ready": "AAqeNCqwaHHLt",
+    "fix_pr_ready": "AAqeNCm0UQQnK",
+    "manual_intervention": "AAqeeVyVrY5hw",
+    "periodic_digest": "AAqeNCqwaHHLt"
+}
+
 
 
 def build_incident_card_payload(incident: Incident) -> Dict:
@@ -135,39 +144,9 @@ def build_incident_card_payload(incident: Incident) -> Dict:
     }
 
 
-def send_incident_card(incident: Incident) -> Optional[Dict]:
-    """
-    发送飞书告警卡片
-    配置缺失时打印模拟卡片，不中断流程
-    返回发送结果或None
-    """
-    # 检查配置是否完整
-    if not config.is_feishu_ready():
-        # 配置不完整，输出模拟卡片
-        logger.info("Feishu mode: mock, reason: missing configuration")
-        summary = incident.error_summary
-        print("\n" + "=" * 60)
-        print("📧 Mock Feishu Card (配置不完整，仅模拟发送)")
-        print("=" * 60)
-        print(f"🚨 服务异常告警 {incident.incident_id}")
-        print(f"来源: {incident.source}")
-        print(f"服务名称: {incident.service}")
-        print(f"状态: {incident.status}")
-        if incident.scenario_id:
-            print(f"场景: {incident.scenario_id}")
-        print(f"错误类型: {summary.error_type}")
-        print(f"错误位置: {summary.suspected_file}:{summary.line_no}")
-        print(f"错误信息: {summary.message}")
-        if incident.issue_url:
-            print(f"Issue链接: {incident.issue_url}")
-        print(f"创建时间: {incident.created_at}")
-        print("ℹ️ 当前阶段：已接收问题，等待 Agent 分析与自动修复")
-        print("=" * 60 + "\n")
-        return {"mock": True, "incident_id": incident.incident_id}
-
+def _get_tenant_access_token() -> Optional[str]:
+    """获取飞书tenant_access_token"""
     try:
-        logger.info("Feishu mode: real")
-        # 第一步：获取tenant_access_token
         token_url = f"{config.FEISHU_API_BASE_URL}/auth/v3/tenant_access_token/internal"
         token_response = httpx.post(
             token_url,
@@ -179,12 +158,55 @@ def send_incident_card(incident: Incident) -> Optional[Dict]:
         )
         token_response.raise_for_status()
         token_data = token_response.json()
-        access_token = token_data.get("tenant_access_token")
+        return token_data.get("tenant_access_token")
+    except Exception as e:
+        logger.error(f"获取飞书tenant_access_token失败: {str(e)}")
+        return None
+
+
+def send_template_card(card_type: str, variables: Dict[str, Any]) -> Optional[Dict]:
+    """
+    通用飞书模板卡片发送方法
+    :param card_type: 卡片类型，对应FEISHU_CARD_TEMPLATES中的key
+    :param variables: 卡片模板变量
+    :return: 发送结果或None
+    """
+    template_id = FEISHU_CARD_TEMPLATES.get(card_type)
+    if not template_id:
+        logger.error(f"未知的卡片类型: {card_type}")
+        return None
+
+    # 检查配置是否完整
+    if not config.is_feishu_ready():
+        # 配置不完整，输出模拟卡片
+        logger.info("Feishu mode: mock, reason: missing configuration")
+        print("\n" + "=" * 80)
+        print(f"📧 Mock Feishu Template Card (配置不完整，仅模拟发送)")
+        print(f"卡片类型: {card_type}")
+        print(f"模板ID: {template_id}")
+        print(f"变量数量: {len(variables)}")
+        print("=" * 80)
+        for key, value in variables.items():
+            print(f"{key}: {value}")
+        print("=" * 80 + "\n")
+        return {"mock": True, "card_type": card_type, "variables": variables}
+
+    try:
+        logger.info(f"Feishu mode: real, 发送{card_type}卡片")
+        access_token = _get_tenant_access_token()
         if not access_token:
-            logger.error("获取飞书tenant_access_token失败")
             return None
 
-        # 第二步：发送消息
+        # 构造卡片内容
+        card_content = json.dumps({
+            "type": "template",
+            "data": {
+                "template_id": template_id,
+                "template_variable": variables
+            }
+        })
+
+        # 发送消息
         send_url = f"{config.FEISHU_API_BASE_URL}/im/v1/messages?receive_id_type=chat_id"
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -192,7 +214,7 @@ def send_incident_card(incident: Incident) -> Optional[Dict]:
         }
         payload = {
             "receive_id": config.FEISHU_CHAT_ID,
-            "content": json.dumps(build_incident_card_payload(incident)["card"]),
+            "content": card_content,
             "msg_type": "interactive"
         }
 
@@ -203,9 +225,38 @@ def send_incident_card(incident: Incident) -> Optional[Dict]:
             timeout=10
         )
         send_response.raise_for_status()
-        send_data = send_response.json()
-        logger.info(f"飞书告警卡片发送成功，Incident ID: {incident.incident_id}, Message ID: {send_data.get('data', {}).get('message_id')}")
-        return send_data
+        result = send_response.json()
+        logger.info(f"飞书卡片发送成功，message_id: {result.get('data', {}).get('message_id')}")
+        return result
+
+    except Exception as e:
+        logger.error(f"发送飞书卡片失败: {str(e)}")
+        return None
+
+
+def send_incident_card(incident: Incident) -> Optional[Dict]:
+    """
+    发送飞书告警卡片（兼容旧版接口，内部使用新的模板卡片发送）
+    配置缺失时打印模拟卡片，不中断流程
+    返回发送结果或None
+    """
+    # 导入变量构造器，避免循环导入
+    try:
+        from autorepair.cards import build_incident_detected_variables
+        
+        summary = incident.error_summary
+        variables = build_incident_detected_variables(
+            incident_id=incident.incident_id,
+            service_name=incident.service_name or incident.service,
+            severity="P2",  # 默认P2级别，后续可根据错误类型动态调整
+            error_type=summary.error_type,
+            error_message=summary.message,
+            occurrence_count=incident.occurrence_count,
+            issue_url=incident.issue_url or "",
+            report_url=""
+        )
+        
+        return send_template_card("incident_detected", variables)
 
     except Exception as e:
         logger.error(f"发送飞书卡片失败: {str(e)}，已降级为本地通知")

@@ -223,9 +223,25 @@ python scripts/feishu_send_text_test.py
 
 4. **测试飞书卡片消息发送**
 ```bash
-python scripts/send_test_feishu_card.py
+# 支持5种卡片类型：incident_detected / repair_plan_ready / fix_pr_ready / manual_intervention / periodic_digest
+python scripts/send_test_feishu_card.py --type incident_detected
 ```
-发送完整的告警卡片，验证卡片渲染和发送功能。
+发送指定类型的测试卡片，验证卡片渲染和发送功能。
+
+---
+
+## 📌 飞书卡片设计规范
+### 核心原则
+> **卡片是摘要，不是详情页。详细 traceback、fingerprint、测试命令、修改文件列表均写入报告或 PR 描述。**
+
+每张卡片变量数不超过 10 个，只展示用户决策所需的核心信息，避免字段堆叠影响移动端体验。低优先级字段如 fingerprint、error_function、source、environment、service_id、完整 traceback 等不在卡片中展示，全部通过 report_url / issue_url / pr_url 跳转查看。
+
+### 支持的卡片类型
+1. **IncidentDetectedCard（故障发现卡）** - 首次发现故障时发送，10个变量
+2. **RepairPlanReadyCard（修复计划卡）** - 诊断完成生成修复计划时发送，9个变量
+3. **FixPrReadyCard（PR待Review卡）** - 修复完成PR创建后发送，10个变量
+4. **ManualInterventionCard（人工介入卡）** - 无法自动修复需要人工处理时发送，9个变量
+5. **PeriodicDigestCard（周期总结卡）** - 每日/每周运行摘要发送，10个变量
 
 5. **测试GitHub集成**
 ```bash
