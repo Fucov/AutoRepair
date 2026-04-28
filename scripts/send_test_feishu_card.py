@@ -36,7 +36,7 @@ def get_test_variables(card_type: str) -> dict:
         return build_repair_plan_ready_variables(
             incident_id="INC-20260426-0001",
             service_name="Acme SupportDesk Lite",
-            root_cause="带时区时间与无时区时间直接比较导致TypeError，出现在sla_checker.py第42行",
+            diagnosis_brief="带时区时间与无时区时间直接比较导致TypeError，出现在sla_checker.py第42行",
             fix_strategy="统一转换为UTC aware datetime后再比较，修改比较逻辑增加类型校验",
             risk_level="低风险",
             policy_result="允许进入自动修复",
@@ -48,7 +48,7 @@ def get_test_variables(card_type: str) -> dict:
             service_name="Acme SupportDesk Lite",
             pr_number=123,
             pr_title="Fix timezone-aware SLA comparison error",
-            fix_summary="统一SLA时间为UTC aware datetime，增加类型校验装饰器",
+            fix_brief="统一SLA时间为UTC aware datetime，增加类型校验装饰器",
             test_brief="pytest 18/18 通过，新增3个边界用例",
             risk_level="低风险",
             pr_url="https://github.com/your-org/your-repo/pull/123",
@@ -58,8 +58,8 @@ def get_test_variables(card_type: str) -> dict:
         return build_manual_intervention_variables(
             incident_id="INC-20260426-0001",
             service_name="PaymentGateway",
-            human_reason="疑似外部数据库连接异常，未定位到业务代码变更点，不适合自动修复",
-            evidence_summary="健康检查连续5次失败，日志显示数据库连接超时，最近无代码部署",
+            reason_brief="疑似外部数据库连接异常，未定位到业务代码变更点，不适合自动修复",
+            evidence_brief="健康检查连续5次失败，日志显示数据库连接超时，最近无代码部署",
             suggested_action="请检查数据库连接、网络配置与服务访问凭证",
             issue_url="https://github.com/your-org/your-repo/issues/123",
             report_url="https://your-report-system.com/reports/INC-20260426-0001"

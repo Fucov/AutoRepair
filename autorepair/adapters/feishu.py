@@ -1,7 +1,8 @@
 import logging
 import json
 from typing import Dict, Optional, Any
-import httpx
+import lark_oapi as lark
+from lark_oapi.api.im.v1 import *
 from autorepair.config import config
 from autorepair.schemas import Incident
 
@@ -13,8 +14,25 @@ FEISHU_CARD_TEMPLATES = {
     "repair_plan_ready": "AAqeNCqwaHHLt",
     "fix_pr_ready": "AAqeNCm0UQQnK",
     "manual_intervention": "AAqeeVyVrY5hw",
-    "periodic_digest": "AAqeNCqwaHHLt"
+    "periodic_digest": "AAqeeV3GS2JUd"
 }
+
+# 初始化飞书客户端
+_lark_client: Optional[lark.Client] = None
+
+def _get_lark_client() -> Optional[lark.Client]:
+    """获取飞书客户端实例"""
+    global _lark_client
+    if not _lark_client:
+        if not config.FEISHU_APP_ID or not config.FEISHU_APP_SECRET:
+            logger.error("飞书APP ID或SECRET未配置")
+            return None
+        _lark_client = lark.Client.builder() \
+            .app_id(config.FEISHU_APP_ID) \
+            .app_secret(config.FEISHU_APP_SECRET) \
+            .log_level(lark.LogLevel.ERROR) \
+            .build()
+    return _lark_client
 
 
 
@@ -144,26 +162,6 @@ def build_incident_card_payload(incident: Incident) -> Dict:
     }
 
 
-def _get_tenant_access_token() -> Optional[str]:
-    """获取飞书tenant_access_token"""
-    try:
-        token_url = f"{config.FEISHU_API_BASE_URL}/auth/v3/tenant_access_token/internal"
-        token_response = httpx.post(
-            token_url,
-            json={
-                "app_id": config.FEISHU_APP_ID,
-                "app_secret": config.FEISHU_APP_SECRET
-            },
-            timeout=5
-        )
-        token_response.raise_for_status()
-        token_data = token_response.json()
-        return token_data.get("tenant_access_token")
-    except Exception as e:
-        logger.error(f"获取飞书tenant_access_token失败: {str(e)}")
-        return None
-
-
 def send_template_card(card_type: str, variables: Dict[str, Any]) -> Optional[Dict]:
     """
     通用飞书模板卡片发送方法
@@ -193,8 +191,8 @@ def send_template_card(card_type: str, variables: Dict[str, Any]) -> Optional[Di
 
     try:
         logger.info(f"Feishu mode: real, 发送{card_type}卡片")
-        access_token = _get_tenant_access_token()
-        if not access_token:
+        client = _get_lark_client()
+        if not client:
             return None
 
         # 构造卡片内容
@@ -206,31 +204,45 @@ def send_template_card(card_type: str, variables: Dict[str, Any]) -> Optional[Di
             }
         })
 
-        # 发送消息
-        send_url = f"{config.FEISHU_API_BASE_URL}/im/v1/messages?receive_id_type=chat_id"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json; charset=utf-8"
-        }
-        payload = {
-            "receive_id": config.FEISHU_CHAT_ID,
-            "content": card_content,
-            "msg_type": "interactive"
-        }
+        # 自动判断receive_id类型：ou_开头是用户open_id，oc_开头是群chat_id
+        receive_id = config.FEISHU_CHAT_ID
+        if receive_id.startswith("ou_"):
+            receive_id_type = "open_id"
+        elif receive_id.startswith("oc_"):
+            receive_id_type = "chat_id"
+        else:
+            receive_id_type = "open_id"
 
-        send_response = httpx.post(
-            send_url,
-            headers=headers,
-            json=payload,
-            timeout=10
-        )
-        send_response.raise_for_status()
-        result = send_response.json()
-        logger.info(f"飞书卡片发送成功，message_id: {result.get('data', {}).get('message_id')}")
-        return result
+        # 构造请求，完全对齐官方示例
+        request = CreateMessageRequest.builder() \
+            .receive_id_type(receive_id_type) \
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(receive_id)
+                .msg_type("interactive")
+                .content(card_content)
+                .build()
+            ) \
+            .build()
+
+        # 发送请求
+        response = client.im.v1.message.create(request)
+        if not response.success():
+            logger.error(f"发送飞书卡片失败, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}")
+            print(f"飞书API错误详情: code={response.code}, msg={response.msg}, log_id={response.get_log_id()}")
+            return None
+
+        logger.info(f"飞书卡片发送成功，message_id: {response.data.message_id}")
+        return {
+            "code": 0,
+            "data": {
+                "message_id": response.data.message_id
+            }
+        }
 
     except Exception as e:
-        logger.error(f"发送飞书卡片失败: {str(e)}")
+        logger.error(f"发送飞书卡片失败: {str(e)}", exc_info=True)
+        print(f"发送异常: {str(e)}")
         return None
 
 

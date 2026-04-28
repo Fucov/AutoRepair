@@ -87,6 +87,16 @@ def _truncate_text(text: str, max_length: int = 80) -> str:
     return text[:max_length - 3] + "..."
 
 
+def _format_url(url: str) -> Dict[str, str]:
+    """格式化URL为飞书卡片要求的多端适配格式"""
+    return {
+        "pc_url": url,
+        "android_url": url,
+        "ios_url": url,
+        "url": url
+    } if url else {}
+
+
 def build_incident_detected_variables(
     incident_id: str,
     service_name: str,
@@ -111,18 +121,18 @@ def build_incident_detected_variables(
         "error_brief": error_brief,
         "occurrence_text": occurrence_text,
         "next_step": "正在收集证据并执行自动诊断",
-        "issue_url": issue_url,
-        "report_url": report_url
+        "issue_url": _format_url(issue_url),
+        "report_url": _format_url(report_url)
     }
 
 
 def build_repair_plan_ready_variables(
     incident_id: str,
     service_name: str,
-    root_cause: str,
+    diagnosis_brief: str,
     fix_strategy: str,
     risk_level: str,
-    policy_summary: str,
+    policy_result: str,
     report_url: str = ""
 ) -> Dict[str, Any]:
     """构造修复计划准备完成卡片变量，最多9个字段"""
@@ -131,11 +141,11 @@ def build_repair_plan_ready_variables(
         "status_label": "待执行",
         "incident_id": incident_id,
         "service_name": service_name,
-        "diagnosis_brief": _truncate_text(root_cause, max_length=100),
+        "diagnosis_brief": _truncate_text(diagnosis_brief, max_length=100),
         "fix_strategy": _truncate_text(fix_strategy, max_length=100),
         "risk_level": risk_level,
-        "policy_result": policy_summary,
-        "report_url": report_url
+        "policy_result": policy_result,
+        "report_url": _format_url(report_url)
     }
 
 
@@ -144,8 +154,8 @@ def build_fix_pr_ready_variables(
     service_name: str,
     pr_number: int,
     pr_title: str,
-    fix_summary: str,
-    test_summary: str,
+    fix_brief: str,
+    test_brief: str,
     risk_level: str,
     pr_url: str,
     report_url: str = ""
@@ -157,20 +167,20 @@ def build_fix_pr_ready_variables(
         "incident_id": incident_id,
         "service_name": service_name,
         "pr_title": f"#{pr_number} {pr_title}",
-        "fix_brief": _truncate_text(fix_summary, max_length=80),
-        "test_brief": test_summary,
+        "fix_brief": _truncate_text(fix_brief, max_length=80),
+        "test_brief": test_brief,
         "risk_level": risk_level,
-        "pr_url": pr_url,
-        "report_url": report_url
+        "pr_url": _format_url(pr_url),
+        "report_url": _format_url(report_url)
     }
 
 
 def build_manual_intervention_variables(
     incident_id: str,
     service_name: str,
-    human_reason: str,
-    evidence_summary: str,
-    next_action: str,
+    reason_brief: str,
+    evidence_brief: str,
+    suggested_action: str,
     issue_url: str = "",
     report_url: str = ""
 ) -> Dict[str, Any]:
@@ -180,11 +190,11 @@ def build_manual_intervention_variables(
         "status_label": "人工处理",
         "incident_id": incident_id,
         "service_name": service_name,
-        "reason_brief": _truncate_text(human_reason, max_length=80),
-        "evidence_brief": _truncate_text(evidence_summary, max_length=80),
-        "suggested_action": _truncate_text(next_action, max_length=80),
-        "issue_url": issue_url,
-        "report_url": report_url
+        "reason_brief": _truncate_text(reason_brief, max_length=80),
+        "evidence_brief": _truncate_text(evidence_brief, max_length=80),
+        "suggested_action": _truncate_text(suggested_action, max_length=80),
+        "issue_url": _format_url(issue_url),
+        "report_url": _format_url(report_url)
     }
 
 
@@ -216,6 +226,6 @@ def build_periodic_digest_variables(
         "top_issue_1": _truncate_text(top_errors_text, max_length=80),
         "top_issue_2": _truncate_text(top_services_text, max_length=80),
         "todo_brief": _truncate_text(todo_text, max_length=80),
-        "report_url": report_url,
-        "pr_url": pr_url
+        "report_url": _format_url(report_url),
+        "pr_url": _format_url(pr_url)
     }
