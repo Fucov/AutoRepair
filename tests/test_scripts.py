@@ -70,3 +70,6 @@ def test_github_smoke_test_missing_config(monkeypatch, capsys):
     assert "Smoke test completed" in captured.out
     assert issue is not None
     assert 'number' in issue
+
+def test_reset_demo_state_imports():
+    import scripts.reset_demo_state  # noqa: F401

@@ -14,11 +14,11 @@ def should_auto_fix(decision: Decision) -> Tuple[bool, str]:
     
     # Check confidence
     if decision.confidence != ConfidenceEnum.high:
-        return False, f"Confidence is {decision.confidence}, not high"
+        return False, f"low confidence: {decision.confidence} is not high"
     
     # Check evidence exists
     if not decision.evidence:
-        return False, "No evidence provided to support auto fix"
+        return False, "no evidence provided to support auto fix"
     
     # Check fix plan exists
     if not decision.fix_plan:
@@ -33,7 +33,7 @@ def should_auto_fix(decision: Decision) -> Tuple[bool, str]:
         risk_lower = risk.lower()
         for keyword in HIGH_RISK_KEYWORDS:
             if keyword in risk_lower:
-                return False, f"High risk detected: {keyword} in risk description"
+                return False, f"high risk detected: {keyword} in risk description"
     
     # All checks passed
     return True, ""

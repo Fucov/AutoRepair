@@ -68,6 +68,8 @@ def write_triage_report(
 {decision.fix_plan if decision.fix_plan else "None"}
 
 ## Policy Gate Result
+Policy gate result: {'✅ PASSED' if policy_passed else '❌ BLOCKED'}
+
 {'✅ PASSED' if policy_passed else '❌ BLOCKED'}
 """
     

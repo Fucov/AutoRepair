@@ -93,6 +93,13 @@ def build_incident_card_payload(incident: Incident) -> Dict:
             }
         },
         {
+            "is_short": True,
+            "text": {
+                "tag": "lark_md",
+                "content": f"**指纹**\n{summary.fingerprint}"
+            }
+        },
+        {
             "is_short": False,
             "text": {
                 "tag": "lark_md",
@@ -134,7 +141,7 @@ def build_incident_card_payload(incident: Incident) -> Dict:
         "tag": "div",
         "text": {
             "tag": "lark_md",
-            "content": "ℹ️ **当前阶段**：diagnosed\n系统已完成基础核查，后续将由 Doubao Agent 生成修复计划。"
+            "content": "ℹ️ **当前阶段**：diagnosed\n系统已完成基础核查，等待 Agent 分析与自动修复。"
         }
     })
     
@@ -283,6 +290,87 @@ def send_incident_card(incident: Incident) -> Optional[Dict]:
         print(f"错误信息: {summary.message}")
         print("=" * 60 + "\n")
         return None
+
+
+def send_repair_plan_ready(
+    incident_id: str,
+    service_name: str,
+    diagnosis_brief: str,
+    fix_strategy: str,
+    risk_level: str,
+    policy_result: str,
+    report_url: str = "",
+) -> Optional[Dict]:
+    from autorepair.cards import build_repair_plan_ready_variables
+
+    return send_template_card(
+        "repair_plan_ready",
+        build_repair_plan_ready_variables(
+            incident_id=incident_id,
+            service_name=service_name,
+            diagnosis_brief=diagnosis_brief,
+            fix_strategy=fix_strategy,
+            risk_level=risk_level,
+            policy_result=policy_result,
+            report_url=report_url,
+        ),
+    )
+
+
+def send_manual_intervention(
+    incident_id: str,
+    service_name: str,
+    reason_brief: str,
+    evidence_brief: str,
+    suggested_action: str,
+    issue_url: str = "",
+    report_url: str = "",
+) -> Optional[Dict]:
+    from autorepair.cards import build_manual_intervention_variables
+
+    return send_template_card(
+        "manual_intervention",
+        build_manual_intervention_variables(
+            incident_id=incident_id,
+            service_name=service_name,
+            reason_brief=reason_brief,
+            evidence_brief=evidence_brief,
+            suggested_action=suggested_action,
+            issue_url=issue_url,
+            report_url=report_url,
+        ),
+    )
+
+
+def send_fix_pr_ready(
+    incident_id: str,
+    service_name: str,
+    pr_number: int,
+    pr_title: str,
+    fix_brief: str,
+    test_brief: str,
+    risk_level: str,
+    pr_url: str,
+    report_url: str = "",
+) -> Optional[Dict]:
+    from autorepair.cards import build_fix_pr_ready_variables
+
+    if not pr_url:
+        return None
+    return send_template_card(
+        "fix_pr_ready",
+        build_fix_pr_ready_variables(
+            incident_id=incident_id,
+            service_name=service_name,
+            pr_number=pr_number,
+            pr_title=pr_title,
+            fix_brief=fix_brief,
+            test_brief=test_brief,
+            risk_level=risk_level,
+            pr_url=pr_url,
+            report_url=report_url,
+        ),
+    )
 
 
 def get_tenant_access_token() -> tuple[Optional[str], Optional[str]]:

@@ -7,38 +7,8 @@ sys.path.append(str(Path(__file__).parent.parent.resolve()))
 from autorepair.watcher import scan_service_logs_once
 from autorepair.service_registry import get_default_service
 from autorepair.adapters.feishu import send_incident_card
-from autorepair.adapters.github import create_issue, create_label
-from autorepair.diagnostics import run_basic_diagnostics
+from autorepair.issue_manager import ensure_issue_for_incident
 from autorepair.audit_store import append_audit_event
-from autorepair.schemas import Incident
-
-def create_github_issue_for_incident(incident: Incident) -> str:
-    """为Incident创建GitHub Issue，返回Issue URL"""
-    # 确保标签存在
-    create_label("bug", "d73a4a", "Something isn't working")
-    create_label("AutoRepair", "0366d6", "AutoRepair system generated issue")
-    
-    summary = incident.error_summary
-    issue_title = f"[Bug] {incident.incident_id}: {summary.error_type} in {summary.suspected_file}"
-    issue_body = f"""## Incident Information
-- **Incident ID**: {incident.incident_id}
-- **Service**: {incident.service_name or incident.service}
-- **Error Type**: {summary.error_type}
-- **Error Message**: {summary.message}
-- **Location**: {summary.suspected_file}:{summary.line_no}
-- **Occurrences**: {incident.occurrence_count}
-- **First Seen**: {incident.created_at}
-
-## Error Summary
-{summary.message}
-
-## Traceback
-```
-{incident.raw_traceback[:1500]}...
-```
-"""
-    issue = create_issue(issue_title, issue_body, labels=["bug", "AutoRepair"])
-    return issue.html_url if issue else ""
 
 
 if __name__ == "__main__":
@@ -65,10 +35,11 @@ if __name__ == "__main__":
             created_count += 1
             prefix = "[created]"
             
-            # 为新创建的Incident创建GitHub Issue
-            issue_url = create_github_issue_for_incident(incident)
+            issue_ref = ensure_issue_for_incident(incident, service)
+            issue_url = issue_ref.html_url
+            incident.issue_number = issue_ref.number
+            incident.issue_url = issue_url
             if issue_url:
-                incident.issue_url = issue_url
                 issue_created_count += 1
                 print(f"Created GitHub Issue: {issue_url}")
             

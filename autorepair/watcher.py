@@ -7,7 +7,8 @@ from .config import LOG_PATH
 from .log_parser import read_latest_traceback, extract_error_summary, extract_traceback_blocks, read_new_log_text
 from .watch_state import get_log_offset, set_log_offset
 from .schemas import Incident, TargetService
-from .incident_store import has_fingerprint, append_incident, upsert_incident_by_fingerprint
+from .incident_store import DEFAULT_INCIDENT_PATH, has_fingerprint, append_incident, upsert_incident_by_fingerprint
+from .watch_state import DEFAULT_WATCH_STATE_PATH
 from .audit_store import append_audit_event
 
 logger = logging.getLogger(__name__)
@@ -71,19 +72,19 @@ def scan_new_log_events_once(log_path: Optional[str] = None) -> List[Tuple[Incid
     results = []
     
     # 1. 获取上次读取偏移量
-    offset = get_log_offset(log_path)
+    offset = get_log_offset(log_path, DEFAULT_WATCH_STATE_PATH)
     
     # 2. 读取新增日志内容
     new_text, new_offset = read_new_log_text(log_path, offset)
     if not new_text:
         # 没有新增内容，更新偏移量后直接返回
-        set_log_offset(log_path, new_offset)
+        set_log_offset(log_path, new_offset, DEFAULT_WATCH_STATE_PATH)
         return results
     
     # 3. 提取所有Traceback块
     traceback_blocks = extract_traceback_blocks(new_text)
     if not traceback_blocks:
-        set_log_offset(log_path, new_offset)
+        set_log_offset(log_path, new_offset, DEFAULT_WATCH_STATE_PATH)
         return results
     
     # 4. 处理每个Traceback
@@ -121,7 +122,7 @@ def scan_new_log_events_once(log_path: Optional[str] = None) -> List[Tuple[Incid
             )
             
             # 新增或更新Incident
-            final_incident, action = upsert_incident_by_fingerprint(incident)
+            final_incident, action = upsert_incident_by_fingerprint(incident, DEFAULT_INCIDENT_PATH)
             results.append((final_incident, action))
             
             # 写入审计记录
@@ -141,7 +142,7 @@ def scan_new_log_events_once(log_path: Optional[str] = None) -> List[Tuple[Incid
             continue
     
     # 5. 更新偏移量
-    set_log_offset(log_path, new_offset)
+    set_log_offset(log_path, new_offset, DEFAULT_WATCH_STATE_PATH)
     
     return results
 

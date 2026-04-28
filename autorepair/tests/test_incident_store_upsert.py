@@ -1,5 +1,6 @@
 import tempfile
 from datetime import datetime
+from pathlib import Path
 from autorepair.schemas import Incident, ErrorSummary
 from autorepair.incident_store import upsert_incident_by_fingerprint, load_incidents
 

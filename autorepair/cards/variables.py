@@ -129,11 +129,13 @@ def build_incident_detected_variables(
 def build_repair_plan_ready_variables(
     incident_id: str,
     service_name: str,
-    diagnosis_brief: str,
-    fix_strategy: str,
-    risk_level: str,
-    policy_result: str,
-    report_url: str = ""
+    diagnosis_brief: str | None = None,
+    fix_strategy: str = "",
+    risk_level: str = "",
+    policy_result: str | None = None,
+    report_url: str = "",
+    root_cause: str | None = None,
+    policy_summary: str | None = None,
 ) -> Dict[str, Any]:
     """构造修复计划准备完成卡片变量，最多9个字段"""
     return {
@@ -141,10 +143,10 @@ def build_repair_plan_ready_variables(
         "status_label": "待执行",
         "incident_id": incident_id,
         "service_name": service_name,
-        "diagnosis_brief": _truncate_text(diagnosis_brief, max_length=100),
+        "diagnosis_brief": _truncate_text(diagnosis_brief or root_cause or "", max_length=100),
         "fix_strategy": _truncate_text(fix_strategy, max_length=100),
         "risk_level": risk_level,
-        "policy_result": policy_result,
+        "policy_result": policy_result or policy_summary or "",
         "report_url": _format_url(report_url)
     }
 
@@ -154,11 +156,13 @@ def build_fix_pr_ready_variables(
     service_name: str,
     pr_number: int,
     pr_title: str,
-    fix_brief: str,
-    test_brief: str,
-    risk_level: str,
-    pr_url: str,
-    report_url: str = ""
+    fix_brief: str | None = None,
+    test_brief: str | None = None,
+    risk_level: str = "",
+    pr_url: str = "",
+    report_url: str = "",
+    fix_summary: str | None = None,
+    test_summary: str | None = None,
 ) -> Dict[str, Any]:
     """构造PR准备完成卡片变量，最多10个字段"""
     return {
@@ -167,8 +171,8 @@ def build_fix_pr_ready_variables(
         "incident_id": incident_id,
         "service_name": service_name,
         "pr_title": f"#{pr_number} {pr_title}",
-        "fix_brief": _truncate_text(fix_brief, max_length=80),
-        "test_brief": test_brief,
+        "fix_brief": _truncate_text(fix_brief or fix_summary or "", max_length=80),
+        "test_brief": test_brief or test_summary or "",
         "risk_level": risk_level,
         "pr_url": _format_url(pr_url),
         "report_url": _format_url(report_url)
@@ -178,11 +182,14 @@ def build_fix_pr_ready_variables(
 def build_manual_intervention_variables(
     incident_id: str,
     service_name: str,
-    reason_brief: str,
-    evidence_brief: str,
-    suggested_action: str,
+    reason_brief: str | None = None,
+    evidence_brief: str | None = None,
+    suggested_action: str | None = None,
     issue_url: str = "",
-    report_url: str = ""
+    report_url: str = "",
+    human_reason: str | None = None,
+    evidence_summary: str | None = None,
+    next_action: str | None = None,
 ) -> Dict[str, Any]:
     """构造人工介入卡片变量，最多9个字段"""
     return {
@@ -190,9 +197,9 @@ def build_manual_intervention_variables(
         "status_label": "人工处理",
         "incident_id": incident_id,
         "service_name": service_name,
-        "reason_brief": _truncate_text(reason_brief, max_length=80),
-        "evidence_brief": _truncate_text(evidence_brief, max_length=80),
-        "suggested_action": _truncate_text(suggested_action, max_length=80),
+        "reason_brief": _truncate_text(reason_brief or human_reason or "", max_length=80),
+        "evidence_brief": _truncate_text(evidence_brief or evidence_summary or "", max_length=80),
+        "suggested_action": _truncate_text(suggested_action or next_action or "", max_length=80),
         "issue_url": _format_url(issue_url),
         "report_url": _format_url(report_url)
     }

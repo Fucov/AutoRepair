@@ -57,12 +57,18 @@ def get_log_offset(log_path: str, state_path: Optional[str | Path] = None) -> in
     state = load_watch_state(state_path)
     log_key = str(Path(log_path).resolve())
     
-    saved_offset = state.get("log_offsets", {}).get(log_key, 0)
+    saved_value = state.get("log_offsets", {}).get(log_key, 0)
+    if isinstance(saved_value, dict):
+        saved_offset = int(saved_value.get("offset", 0))
+        saved_size = int(saved_value.get("size", saved_offset))
+    else:
+        saved_offset = int(saved_value or 0)
+        saved_size = None
     
     # 检查当前日志文件大小，如果小于保存的偏移量，说明日志被截断
     try:
         current_size = Path(log_path).stat().st_size
-        if current_size < saved_offset:
+        if saved_size is not None and current_size < saved_size:
             return 0
     except FileNotFoundError:
         return 0
@@ -83,5 +89,10 @@ def set_log_offset(log_path: str, offset: int, state_path: Optional[str | Path] 
     if "log_offsets" not in state:
         state["log_offsets"] = {}
     
-    state["log_offsets"][log_key] = offset
+    try:
+        current_size = Path(log_path).stat().st_size
+    except FileNotFoundError:
+        current_size = offset
+
+    state["log_offsets"][log_key] = {"offset": offset, "size": current_size}
     save_watch_state(state, state_path)

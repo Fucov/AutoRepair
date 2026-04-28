@@ -351,6 +351,89 @@ Stage 3A 会接入 Doubao 大模型，实现根因分析和修复计划生成。
 
 ---
 
+## Stage 3A 完整修复链路
+
+Stage 3A 将运行时异常和用户手动提交的 bug Issue 统一到同一条 Issue 生命周期中。本阶段重点是编排骨架、状态机、队列、repo lock 和 git worktree 隔离；默认是 dry-run 修复，不会真实修改业务代码，也不会自动创建伪造 PR。
+
+### 运行时异常路线
+
+1. 清理演示状态：
+```bash
+python scripts/reset_demo_state.py
+```
+
+2. 启动 Demo 服务：
+```bash
+python scripts/run_demo_server.py
+```
+
+3. 在页面触发 SLA 时区异常。
+
+4. 扫描日志：
+```bash
+python scripts/watch_once.py
+```
+
+预期行为：
+- watcher 生成或更新 Incident。
+- `ensure_issue_for_incident` 根据 fingerprint 查找未关闭 Issue。
+- 没有重复 Issue 时创建标准 GitHub Issue。
+- Issue 标签包含 `bug`、`AutoRepair`、`source:runtime`、`autorepair:triage`、`risk:low` 或 `risk:medium`。
+- 飞书 IncidentDetected 卡片在拿到 Issue URL 后发送。
+- 不会立即修复代码。
+
+### 手动 Issue 路线
+
+1. 用户创建或 mock 一个带 `bug` 标签的 Issue。
+
+2. 扫描 Issue：
+```bash
+python scripts/watch_github_issues_once.py
+```
+
+预期行为：
+- `issue_validator` 先检查 Issue 是否有复现步骤、期望行为、实际行为、错误信息、服务或模块等证据。
+- 信息不足时评论需要补充的内容，并标记 `autorepair:needs-info`。
+- 高风险内容标记 `autorepair:human-required`。
+- 信息充分时进入 `process_issue_for_repair`，通过 dry-run triage 和 policy gate 后创建 RepairJob。
+
+### Repair Job 队列
+
+查看或执行一个 queued job：
+```bash
+python scripts/repair_once.py
+```
+
+预期行为：
+- 每次只处理最早的一个 `queued` job。
+- 同一个 Issue 或 Incident 不会创建重复 active job。
+- 同一个 repo 通过 `autorepair/records/locks/` 下的 repo-level lock 串行执行。
+- worker 创建 `autorepair/...` 修复分支和 `.worktrees/<incident_id>` worktree。
+- Stage 3A dry-run 不生成 patch，不创建 PR，也不发送 FixPrReadyCard。
+
+### PR 合并同步
+
+当后续阶段创建 PR 后，可同步 PR 状态：
+```bash
+python scripts/sync_pr_status_once.py
+```
+
+预期行为：
+- `pr_created` job 对应 PR merged 后，关闭 Issue，标记 `autorepair:closed`，并清理 worktree 和安全的 `autorepair/` 分支。
+- PR closed 但未 merged 时，job 转为 `human_required`，Issue 标记 `autorepair:human-required`。
+- 删除远端分支前必须是 `autorepair/` 前缀；不会删除 `main`、`master` 或 `develop`。
+
+### 安全保证
+
+- 不自动 merge PR。
+- 不直接 push 或修改 `main` / `master`。
+- 不在主工作区执行修复代码修改。
+- 不重复处理同一个已有 active job 的 Issue 或 Incident。
+- 不会因为每次触发 bug 就并发修复。
+- Issue 正文中的 shell 命令只作为证据，不会被自动执行。
+
+---
+
 ## 🚀 Stage 2D 演示流程（历史版本）
 Stage 2D 升级为更贴近企业研发协作的「Acme SupportDesk Lite 工单与 SLA 服务」场景，补齐 Mock GitHub Issue 离线闭环，优化演示体验。
 

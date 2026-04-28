@@ -7,7 +7,11 @@ sys.path.append(str(Path(__file__).parent.parent.resolve()))
 from autorepair.config import LOG_PATH
 from autorepair.incident_store import DEFAULT_INCIDENT_PATH
 from autorepair.watch_state import DEFAULT_WATCH_STATE_PATH
-from autorepair.adapters.github import MOCK_GITHUB_ISSUES_PATH, MOCK_GITHUB_ISSUE_COMMENTS_PATH
+from autorepair.adapters.github import (
+    MOCK_GITHUB_ISSUES_PATH,
+    MOCK_GITHUB_ISSUE_COMMENTS_PATH,
+    MOCK_GITHUB_PRS_PATH,
+)
 from autorepair.audit_store import DEFAULT_AUDIT_PATH
 
 def reset_file(file_path: Path, description: str):
@@ -54,6 +58,9 @@ if __name__ == "__main__":
     reset_file(MOCK_GITHUB_ISSUE_COMMENTS_PATH, "Mock GitHub Issue评论文件")
     
     # 6. 清空审计记录文件
+    reset_file(MOCK_GITHUB_PRS_PATH, "Mock GitHub PR记录文件")
+
+    # 7. 清空审计记录文件
     reset_file(DEFAULT_AUDIT_PATH, "审计记录文件")
     
     print("=" * 50)
