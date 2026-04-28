@@ -1,6 +1,5 @@
 .trae
 .env
-docs
 __pycache__/
 *.pyc
 *.pyo
@@ -9,6 +8,7 @@ __pycache__/
 venv/
 *.log
 demo_service/logs/*.log
-
+docs/clawsweeper
+docs/superpowers
 *.json
 *.jsonl
