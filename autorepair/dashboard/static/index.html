@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FeishuAutoRepair Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- 导航栏 -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-bold text-gray-800">🚀 FeishuAutoRepair 自动化修复系统</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="last-updated" class="text-sm text-gray-500">最后更新: 加载中...</span>
+                    <button onclick="loadData()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                        刷新数据
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容 -->
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-sm text-gray-500 mb-1">总Incident数</div>
+                <div class="text-3xl font-bold text-gray-800" id="total-incidents">--</div>
+                <div class="text-sm text-green-500 mt-2" id="today-incidents">今日新增: --</div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-sm text-gray-500 mb-1">修复成功率</div>
+                <div class="text-3xl font-bold text-blue-800" id="repair-success-rate">--%</div>
+                <div class="text-sm text-gray-500 mt-2" id="repair-stats">成功: -- / 失败: --</div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-sm text-gray-500 mb-1">待处理Issue</div>
+                <div class="text-3xl font-bold text-yellow-600" id="open-issues">--</div>
+                <div class="text-sm text-gray-500 mt-2">已关闭: <span id="closed-issues">--</span></div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="text-sm text-gray-500 mb-1">待合并PR</div>
+                <div class="text-3xl font-bold text-purple-600" id="open-prs">--</div>
+                <div class="text-sm text-gray-500 mt-2">已合并: <span id="merged-prs">--</span></div>
+            </div>
+        </div>
+
+        <!-- 图表区域 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold mb-4">24小时Incident趋势</h3>
+                <canvas id="trend-chart" height="200"></canvas>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold mb-4">错误类型分布</h3>
+                <canvas id="error-type-chart" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- 操作中心 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <h3 class="text-lg font-semibold mb-4">🛠️ 操作中心</h3>
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <button onclick="triggerAction('scan_logs')" class="bg-green-500 hover:bg-green-600 text-white px-4 py-3 rounded-lg">
+                    扫描日志
+                </button>
+                <button onclick="triggerAction('scan_issues')" class="bg-green-500 hover:bg-green-600 text-white px-4 py-3 rounded-lg">
+                    扫描Issue
+                </button>
+                <button onclick="triggerAction('run_repair')" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-lg">
+                    执行修复
+                </button>
+                <button onclick="triggerAction('sync_prs')" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-lg">
+                    同步PR状态
+                </button>
+                <button onclick="triggerAction('send_digest')" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-3 rounded-lg">
+                    发送统计摘要
+                </button>
+            </div>
+            <div id="action-message" class="mt-4 p-3 rounded hidden"></div>
+        </div>
+
+        <!-- 最近Incident列表 -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="text-lg font-semibold mb-4">最近Incident</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b">
+                            <th class="text-left py-3 px-4">ID</th>
+                            <th class="text-left py-3 px-4">错误类型</th>
+                            <th class="text-left py-3 px-4">服务</th>
+                            <th class="text-left py-3 px-4">错误文件</th>
+                            <th class="text-left py-3 px-4">状态</th>
+                            <th class="text-left py-3 px-4">创建时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="incident-table">
+                        <tr>
+                            <td colspan="6" class="py-4 text-center text-gray-500">加载中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // 全局数据
+        let stats = null;
+        let incidents = [];
+
+        // 加载数据
+        async function loadData() {
+            try {
+                // 加载统计数据
+                const statsRes = await fetch('/api/stats');
+                stats = await statsRes.json();
+                
+                // 更新统计卡片
+                document.getElementById('total-incidents').textContent = stats.summary.total_incidents;
+                document.getElementById('today-incidents').textContent = `今日新增: ${stats.summary.today_incidents}`;
+                document.getElementById('repair-success-rate').textContent = `${stats.summary.repair_success_rate}%`;
+                document.getElementById('repair-stats').textContent = `成功: ${stats.summary.successful_repairs} / 失败: ${stats.summary.failed_repairs}`;
+                document.getElementById('open-issues').textContent = stats.summary.open_issues;
+                document.getElementById('closed-issues').textContent = stats.summary.closed_issues;
+                document.getElementById('open-prs').textContent = stats.summary.open_prs;
+                document.getElementById('merged-prs').textContent = stats.summary.merged_prs;
+                document.getElementById('last-updated').textContent = `最后更新: ${new Date(stats.updated_at).toLocaleString('zh-CN')}`;
+
+                // 渲染趋势图
+                renderTrendChart(stats.trends.last_24h_incidents);
+                
+                // 渲染错误类型饼图
+                renderErrorTypeChart(stats.distributions.error_type);
+
+                // 加载Incident列表
+                const incidentsRes = await fetch('/api/incidents?limit=10');
+                incidents = await incidentsRes.json();
+                renderIncidentTable(incidents);
+
+                showMessage('数据加载成功', 'success');
+            } catch (error) {
+                showMessage(`数据加载失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 渲染趋势图
+        function renderTrendChart(data) {
+            const ctx = document.getElementById('trend-chart').getContext('2d');
+            const labels = Array.from({length: 24}, (_, i) => `${23 - i}h`);
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Incident数量',
+                        data: data,
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        // 渲染错误类型饼图
+        function renderErrorTypeChart(data) {
+            const ctx = document.getElementById('error-type-chart').getContext('2d');
+            const labels = Object.keys(data);
+            const values = Object.values(data);
+            const colors = [
+                'rgb(239, 68, 68)', 'rgb(249, 115, 22)', 'rgb(245, 158, 11)',
+                'rgb(234, 179, 8)', 'rgb(132, 204, 22)', 'rgb(34, 197, 94)',
+                'rgb(20, 184, 166)', 'rgb(6, 182, 212)', 'rgb(59, 130, 246)',
+                'rgb(168, 85, 247)'
+            ];
+
+            new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: colors.slice(0, labels.length)
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'right' } }
+                }
+            });
+        }
+
+        // 渲染Incident表格
+        function renderIncidentTable(incidents) {
+            const tbody = document.getElementById('incident-table');
+            tbody.innerHTML = '';
+
+            if (incidents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-gray-500">暂无Incident记录</td></tr>';
+                return;
+            }
+
+            incidents.forEach(inc => {
+                const row = document.createElement('tr');
+                row.className = 'border-b hover:bg-gray-50';
+                row.innerHTML = `
+                    <td class="py-3 px-4 font-mono text-sm">${inc.incident_id.slice(0, 8)}</td>
+                    <td class="py-3 px-4">
+                        <span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs">${inc.error_type}</span>
+                    </td>
+                    <td class="py-3 px-4">${inc.service || 'unknown'}</td>
+                    <td class="py-3 px-4 font-mono text-sm">${inc.suspected_file}:${inc.line_no}</td>
+                    <td class="py-3 px-4">
+                        <span class="${inc.status === 'open' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'} px-2 py-1 rounded text-xs">${inc.status}</span>
+                    </td>
+                    <td class="py-3 px-4 text-sm text-gray-500">${new Date(inc.created_at).toLocaleString('zh-CN')}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // 触发操作
+        async function triggerAction(action) {
+            try {
+                showMessage(`正在执行${action}...`, 'info');
+                const res = await fetch(`/api/trigger/${action}`, { method: 'POST' });
+                const result = await res.json();
+                if (res.ok) {
+                    showMessage(result.message, 'success');
+                    // 1秒后刷新数据
+                    setTimeout(loadData, 1000);
+                } else {
+                    showMessage(result.detail, 'error');
+                }
+            } catch (error) {
+                showMessage(`操作失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 显示消息
+        function showMessage(message, type) {
+            const el = document.getElementById('action-message');
+            el.classList.remove('hidden', 'bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800', 'bg-blue-100', 'text-blue-800');
+            
+            if (type === 'success') {
+                el.classList.add('bg-green-100', 'text-green-800');
+            } else if (type === 'error') {
+                el.classList.add('bg-red-100', 'text-red-800');
+            } else if (type === 'info') {
+                el.classList.add('bg-blue-100', 'text-blue-800');
+            }
+            
+            el.textContent = message;
+            el.classList.remove('hidden');
+            
+            // 3秒后自动隐藏成功/信息消息
+            if (type !== 'error') {
+                setTimeout(() => el.classList.add('hidden'), 3000);
+            }
+        }
+
+        // 页面加载完成后加载数据
+        document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

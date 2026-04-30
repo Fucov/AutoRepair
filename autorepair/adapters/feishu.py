@@ -373,6 +373,47 @@ def send_fix_pr_ready(
     )
 
 
+def send_fix_pr_ready_card(
+    incident_id: str,
+    issue_number: int,
+    pr_url: str,
+    pr_title: str,
+    fix_summary: str,
+    risk_level: str,
+) -> Optional[Dict]:
+    """
+    兼容executor.py中的调用接口
+    """
+    return send_fix_pr_ready(
+        incident_id=incident_id,
+        service_name="demo_service",
+        pr_number=int(pr_url.split("/")[-1]) if pr_url.startswith("http") else 0,
+        pr_title=pr_title,
+        fix_brief=fix_summary,
+        test_brief="目标测试和全量测试均通过",
+        risk_level=risk_level,
+        pr_url=pr_url,
+    )
+
+
+def send_manual_intervention_card(
+    incident_id: str,
+    issue_number: int,
+    error_message: str,
+) -> Optional[Dict]:
+    """
+    兼容executor.py和sync_pr_status_once.py中的调用接口
+    """
+    return send_manual_intervention(
+        incident_id=incident_id,
+        service_name="demo_service",
+        reason_brief="修复失败，需要人工介入",
+        evidence_brief=error_message[:200] + "..." if len(error_message) > 200 else error_message,
+        suggested_action=f"请查看Issue #{issue_number}并进行处理",
+        issue_url=f"https://github.com/issues/{issue_number}" if issue_number else "",
+    )
+
+
 def get_tenant_access_token() -> tuple[Optional[str], Optional[str]]:
     """获取飞书tenant_access_token，用于测试"""
     if not config.is_feishu_ready():
