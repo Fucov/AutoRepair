@@ -127,3 +127,28 @@ def delete_local_branch(branch: str, repo_path: str | Path = ".") -> None:
 def delete_remote_branch(branch: str, repo_path: str | Path = ".", remote: str = "origin") -> None:
     assert_safe_cleanup_branch(branch)
     _run_git(Path(repo_path).resolve(), ["push", remote, "--delete", branch])
+
+
+def git_commit_all(worktree_path: str | Path, message: str) -> str:
+    worktree = Path(worktree_path).resolve()
+    _run_git(worktree, ["add", "."])
+    result = _run_git(worktree, ["commit", "-m", message])
+    sha_result = _run_git(worktree, ["rev-parse", "HEAD"])
+    return sha_result.stdout.strip()
+
+
+def git_push_branch(worktree_path: str | Path, branch: str, remote: str = "origin") -> None:
+    worktree = Path(worktree_path).resolve()
+    _run_git(worktree, ["push", "-u", remote, branch])
+
+
+def get_git_diff(worktree_path: str | Path) -> str:
+    worktree = Path(worktree_path).resolve()
+    result = subprocess.run(
+        ["git", "diff"],
+        cwd=str(worktree),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result.stdout

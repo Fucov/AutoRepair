@@ -78,13 +78,10 @@ def sync_once() -> int:
             job.incident_id,
             {"job_id": job.job_id, "pr_number": job.pr_number},
         )
-        feishu.send_manual_intervention(
+        feishu.send_manual_intervention_card(
             incident_id=job.incident_id,
-            service_name=job.repo_name,
-            reason_brief="PR closed without merge",
-            evidence_brief=f"PR #{job.pr_number}",
-            suggested_action="Review the closed PR and decide whether to reopen or handle manually.",
-            issue_url="",
+            issue_number=job.issue_number,
+            error_message=f"PR #{job.pr_number} 被关闭但未合并，需要人工介入处理。"
         )
         print(f"PR #{job.pr_number} closed without merge; marked human-required.")
     return 0

@@ -197,6 +197,82 @@ python scripts/run_demo_server.py
 #### 3. 打开浏览器访问业务控制台
 ---
 
+## 🚀 Stage 3B 演示流程
+### 🎯 核心能力
+✅ 已打通 ticket-timezone-sla 单Bug自动修复完整闭环
+✅ 支持Runtime Bug → Incident → GitHub Issue → Triage → RepairJob → git worktree → LLM生成patch → 应用patch → pytest验证 → commit/push → 创建PR → 飞书发送PR待Review卡全链路自动化
+
+### 🔹 关键特性
+1. **隔离修复**：所有代码修改在独立git worktree中进行，不影响主分支
+2. **并发控制**：Repo lock机制保证同一时间只有一个修复任务运行
+3. **防重复创建**：同一issue/incident已有活跃任务或PR时，不会重复创建
+4. **严格校验**：Patch必须经过目标测试和全量测试验证才能提交PR
+5. **安全可控**：不会自动merge PR，所有PR需要人工Review
+6. **自动清理**：PR合并后自动关闭Issue、清理worktree和临时分支
+
+### 🔹 完整演示步骤
+#### 1. 清理演示状态
+```bash
+python scripts/reset_demo_state.py
+```
+
+#### 2. 启动Demo服务
+```bash
+python scripts/run_demo_server.py
+```
+服务运行在 http://127.0.0.1:8000
+
+#### 3. 触发SLA timezone Bug
+在浏览器中点击「带时区SLA的工单提交」按钮，触发TypeError异常：timezone-aware datetime与naive datetime直接比较。
+
+#### 4. 扫描日志生成Incident
+```bash
+python scripts/watch_once.py
+```
+- 创建Incident
+- 创建/关联GitHub Issue
+- 发送IncidentDetectedCard飞书卡片
+
+#### 5. 处理GitHub Issue生成修复任务
+```bash
+python scripts/watch_github_issues_once.py
+```
+- 验证Issue
+- 执行Triage
+- 通过Policy Gate
+- 创建RepairJob（queued状态）
+- 发送RepairPlanReadyCard飞书卡片
+
+#### 6. 执行自动修复
+```bash
+python scripts/repair_once.py
+```
+- 创建隔离git worktree
+- 调用豆包大模型生成修复Patch
+- 应用Patch到worktree
+- 运行目标测试验证修复
+- 运行全量测试确保没有回归
+- Commit并Push修复分支
+- 创建GitHub PR
+- 更新Issue状态、添加评论
+- 发送FixPrReadyCard飞书卡片通知Review
+
+#### 7. 同步PR状态（PR合并后执行）
+```bash
+python scripts/sync_pr_status_once.py
+```
+- 扫描pr_created状态的RepairJob
+- 查询PR状态
+- 若已合并：评论Issue、关闭Issue、打autorepair:closed标签、清理worktree、删除临时分支、更新job状态为closed
+- 若关闭未合并：标记为human_required、发送ManualInterventionCard飞书卡片
+
+### 🔹 测试说明
+- 全量测试通过：`pytest -q`
+- ticket-timezone-sla目标测试修复后通过：`pytest -q demo_service/tests/test_ticket_contract.py::test_timezone_aware_sla_deadline_should_create_ticket -m agent_target`
+- 其他agent_target测试仍预期失败，作为后续扩展场景
+
+---
+
 ## 🚀 Stage 2F 演示流程
 Stage 2F-Fix 聚焦演示可信度修复，UI升级为真实企业工单系统，完善环境配置检查和真实API链路验证。
 
