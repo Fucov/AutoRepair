@@ -118,6 +118,104 @@ def upsert_incident_by_fingerprint(incident: Incident, path: Optional[str | Path
     return (incident, action)
 
 
+def upsert_incident_from_issue(issue: "GitHubIssue") -> Incident:
+    """从GitHub Issue创建或更新Incident，用于手动提交的Bug Issue"""
+    import uuid
+    from datetime import datetime
+    import re
+    from .adapters.github import GitHubIssue
+    from .schemas import ErrorSummary
+
+    body = issue.body or ""
+    title = issue.title or ""
+
+    # 尝试从body中提取Incident ID
+    incident_id = None
+    for line in body.splitlines():
+        if "Incident ID:" in line:
+            incident_id = line.split("Incident ID:", 1)[1].strip().strip("`")
+            break
+
+    if not incident_id:
+        incident_id = f"INC-GH-{issue.number}-{uuid.uuid4().hex[:6]}"
+
+    # 查找是否已存在
+    existing = None
+    for inc in load_incidents():
+        if inc.incident_id == incident_id:
+            existing = inc
+            break
+
+    if existing:
+        existing.occurrence_count += 1
+        existing.updated_at = datetime.utcnow().isoformat()
+        existing.issue_number = issue.number
+        existing.issue_url = issue.html_url
+        # 全量重写文件
+        from pathlib import Path
+        file_path = DEFAULT_INCIDENT_PATH
+        _ensure_path_exists(file_path)
+        incidents = load_incidents()
+        for i, inc in enumerate(incidents):
+            if inc.incident_id == existing.incident_id:
+                incidents[i] = existing
+                break
+        with open(file_path, "w", encoding="utf-8") as f:
+            for inc in incidents:
+                f.write(inc.model_dump_json() + "\n")
+        return existing
+
+    # 构造ErrorSummary
+    error_type = "UnknownError"
+    error_message = "Manual bug report"
+    suspected_file = None
+    line_no = None
+    function = None
+    fingerprint = f"github-issue-{issue.number}"
+
+    # 尝试从body中提取错误信息
+    type_error_match = re.search(r'(TypeError|AttributeError|IndexError|KeyError|ZeroDivisionError|ValueError)', body)
+    if type_error_match:
+        error_type = type_error_match.group(1)
+
+    message_match = re.search(r'## Error\n\n(.+?)\n\n##', body, re.DOTALL)
+    if message_match:
+        error_message = message_match.group(1).strip()[:500]
+
+    file_match = re.search(r'File ["\']([^"\']+)["\']', body)
+    if file_match:
+        suspected_file = file_match.group(1)
+
+    line_match = re.search(r'line (\d+)', body)
+    if line_match:
+        line_no = int(line_match.group(1))
+
+    now = datetime.utcnow().isoformat()
+    incident = Incident(
+        incident_id=incident_id,
+        source="github_issue",
+        service="demo_service",
+        service_name="demo_service",
+        error_summary=ErrorSummary(
+            error_type=error_type,
+            message=error_message,
+            suspected_file=suspected_file,
+            line_no=line_no,
+            function=function,
+            fingerprint=fingerprint,
+        ),
+        raw_traceback=body[:4000],
+        created_at=now,
+        updated_at=now,
+        occurrence_count=1,
+        issue_number=issue.number,
+        issue_url=issue.html_url,
+    )
+
+    append_incident(incident)
+    return incident
+
+
 def update_incident_fields(
     incident_id: str,
     issue_number: Optional[int] = None,

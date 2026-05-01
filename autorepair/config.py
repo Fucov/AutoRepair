@@ -15,11 +15,17 @@ class Config:
     FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET")
     FEISHU_CHAT_ID = os.getenv("FEISHU_CHAT_ID")
     
-    # Ark配置
-    ARK_API_KEY = os.getenv("ARK_API_KEY")
-    ARK_BASE_URL = os.getenv("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
-    ARK_MODEL_REPAIR = os.getenv("ARK_MODEL_REPAIR")
-    ARK_MODEL_SUMMARY = os.getenv("ARK_MODEL_SUMMARY")
+    # LLM配置（优先使用通用LLM配置，兼容OpenAI接口）
+    LLM_API_KEY = os.getenv("LLM_API_KEY", os.getenv("ARK_API_KEY", ""))
+    LLM_BASE_URL = os.getenv("LLM_BASE_URL", os.getenv("ARK_BASE_URL", "https://llm.actscal.org/v1"))
+    LLM_MODEL_REPAIR = os.getenv("LLM_MODEL_REPAIR", os.getenv("ARK_MODEL_REPAIR", "lab-chat"))
+    LLM_MODEL_SUMMARY = os.getenv("LLM_MODEL_SUMMARY", os.getenv("ARK_MODEL_SUMMARY", "lab-chat"))
+    
+    # 兼容旧的Ark配置
+    ARK_API_KEY = LLM_API_KEY
+    ARK_BASE_URL = LLM_BASE_URL
+    ARK_MODEL_REPAIR = LLM_MODEL_REPAIR
+    ARK_MODEL_SUMMARY = LLM_MODEL_SUMMARY
 
     # GitHub配置
     GITHUB_API_BASE_URL = os.getenv("GITHUB_API_BASE_URL", "https://api.github.com")

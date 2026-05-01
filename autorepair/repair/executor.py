@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from pydantic import BaseModel
-from autorepair.adapters.ark import ArkClient
+from autorepair.adapters.llm_client import LLMClient as ArkClient
 from autorepair.adapters.github import (
     find_open_pr_for_branch,
     create_pull_request,

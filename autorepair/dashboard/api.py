@@ -261,11 +261,33 @@ async def api_trigger_scan_issues():
 
 @app.post("/api/trigger/run_repair", response_model=TriggerResponse)
 async def api_trigger_run_repair():
-    """手动触发修复任务（待实现）"""
+    """手动触发修复任务 - 从queued队列中取出一个job执行完整修复链路"""
     try:
+        from autorepair.repair.executor import execute_next_repair_job
+        result = execute_next_repair_job()
+        
+        if result.error:
+            return TriggerResponse(
+                success=True,
+                message=result.error,
+                data={"job_id": result.job.job_id if result.job else None}
+            )
+        
+        if result.job:
+            return TriggerResponse(
+                success=True,
+                message=f"修复任务完成: {result.job.job_id}",
+                data={
+                    "job_id": result.job.job_id,
+                    "status": result.job.status.value,
+                    "pr_url": result.job.pr_url,
+                    "pr_number": result.job.pr_number
+                }
+            )
+        
         return TriggerResponse(
             success=True,
-            message="修复任务执行功能开发中，将在后续版本支持",
+            message="没有待执行的修复任务",
             data={"jobs_created": 0}
         )
     except Exception as e:
@@ -273,12 +295,22 @@ async def api_trigger_run_repair():
 
 @app.post("/api/trigger/sync_prs", response_model=TriggerResponse)
 async def api_trigger_sync_prs():
-    """手动触发PR状态同步（待实现）"""
+    """手动触发PR状态同步 - 扫描pr_created job，检查PR是否合并"""
     try:
+        from scripts.sync_pr_status_once import sync_once
+        sync_once()
+        
+        from autorepair.repair.job_store import load_repair_jobs
+        from autorepair.repair.schemas import RepairJobStatus
+        jobs = [job for job in load_repair_jobs() if job.status in {RepairJobStatus.merged, RepairJobStatus.human_required}]
+        
         return TriggerResponse(
             success=True,
-            message="PR状态同步功能开发中，将在后续版本支持",
-            data={"updated_prs": 0}
+            message=f"PR状态同步完成",
+            data={
+                "updated_jobs": len(jobs),
+                "jobs": [{"job_id": job.job_id, "status": job.status.value} for job in jobs[-5:]]
+            }
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PR状态同步失败: {str(e)}")

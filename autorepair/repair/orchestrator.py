@@ -71,6 +71,13 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
     if issue is None:
         return None
 
+    # 检查是否已有active job
+    from autorepair.repair.job_store import find_active_job_by_issue
+    existing_job = find_active_job_by_issue(issue_number)
+    if existing_job:
+        comment_issue(issue.number, f"AutoRepair 已存在active修复任务 `{existing_job.job_id}` (status: {existing_job.status.value})，不会重复创建。")
+        return None
+
     validation = validate_bug_issue(issue)
     incident_id = _incident_id_from_body(issue.body, issue.number)
     service = get_default_service()
