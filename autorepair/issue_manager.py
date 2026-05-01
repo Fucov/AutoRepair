@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from autorepair.adapters.github import (
     IssueRef,
+    _is_github_configured,
     add_labels,
     comment_issue,
     create_issue,
@@ -141,11 +142,16 @@ def ensure_issue_for_incident(
         return IssueRef(number=existing.number, html_url=existing.html_url)
 
     labels = ["bug", "AutoRepair", "source:runtime", "autorepair:triage", _risk_label_for_incident(incident)]
+    # 只有配置了真实GitHub才设置assignee，mock模式下不设置避免错误
+    assignees = []
+    if _is_github_configured() and GITHUB_ASSIGNEE:
+        assignees = [GITHUB_ASSIGNEE]
+    
     issue = create_issue(
         title=_build_issue_title(incident, service),
         body=_build_issue_body(incident, service, diagnostic_report),
         labels=labels,
-        assignees=[GITHUB_ASSIGNEE] if GITHUB_ASSIGNEE else [],
+        assignees=assignees,
     )
     if issue is None:
         # 即使创建失败，也返回一个mock的IssueRef，保证流程不中断

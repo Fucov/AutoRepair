@@ -189,7 +189,6 @@ def send_template_card(card_type: str, variables: Dict[str, Any]) -> Optional[Di
         print(f"📧 Mock Feishu Template Card (配置不完整，仅模拟发送)")
         print(f"卡片类型: {card_type}")
         print(f"模板ID: {template_id}")
-        print(f"变量数量: {len(variables)}")
         print("=" * 80)
         for key, value in variables.items():
             print(f"{key}: {value}")
