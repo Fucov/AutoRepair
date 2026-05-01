@@ -32,7 +32,7 @@ class Config:
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
     GITHUB_OWNER = os.getenv("GITHUB_OWNER")
     GITHUB_REPO = os.getenv("GITHUB_REPO")
-    GITHUB_ASSIGNEE = os.getenv("GITHUB_ASSIGNEE", "AutoRepair")
+    GITHUB_ASSIGNEE = os.getenv("GITHUB_ASSIGNEE")
     
     TEST_CMD = os.getenv("TEST_CMD", "pytest -q")
     

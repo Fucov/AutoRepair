@@ -354,8 +354,6 @@ def create_demo_bug_issue(scenario_id: str) -> Optional[GitHubIssue]:
             "body": issue_body,
             "labels": ["bug"]
         }
-        if GITHUB_ASSIGNEE:
-            payload["assignees"] = [GITHUB_ASSIGNEE]
         response = httpx.post(url, headers=_get_headers(), json=payload, timeout=10)
         response.raise_for_status()
         issue_data = response.json()
@@ -380,14 +378,12 @@ def create_issue(
     title: str,
     body: str,
     labels: List[str] = None,
-    assignees: List[str] | None = None,
 ) -> Optional[GitHubIssue]:
     """
     通用创建Issue函数
     配置缺失时写入本地mock Issue存储
     """
     labels = labels or ["bug"]
-    assignees = assignees if assignees is not None else ([GITHUB_ASSIGNEE] if GITHUB_ASSIGNEE else [])
     
     if not _is_github_configured():
         # 配置缺失时，写入本地mock Issue存储
@@ -409,7 +405,7 @@ def create_issue(
             "labels": labels,
             "state": "open",
             "comments": [],
-            "assignees": assignees,
+            "assignees": [],
         }
         _save_mock_issue(mock_issue)
         
@@ -422,8 +418,6 @@ def create_issue(
             "body": body,
             "labels": labels
         }
-        if assignees:
-            payload["assignees"] = assignees
         response = httpx.post(url, headers=_get_headers(), json=payload, timeout=10)
         if response.status_code == 422:
             error_data = response.json()
