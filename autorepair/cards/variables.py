@@ -89,12 +89,15 @@ def _truncate_text(text: str, max_length: int = 80) -> str:
 
 def _format_url(url: str) -> Dict[str, str]:
     """格式化URL为飞书卡片要求的多端适配格式"""
+    # 飞书要求URL必须是合法的http/https格式
+    if not url or not url.startswith(("http://", "https://")):
+        return {}
     return {
         "pc_url": url,
         "android_url": url,
         "ios_url": url,
         "url": url
-    } if url else {}
+    }
 
 
 def build_incident_detected_variables(

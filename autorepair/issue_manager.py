@@ -150,10 +150,12 @@ def ensure_issue_for_incident(
     if issue is None:
         # 即使创建失败，也返回一个mock的IssueRef，保证流程不中断
         import uuid
+        from autorepair.config import GITHUB_OWNER, GITHUB_REPO
         mock_number = int(uuid.uuid4().hex[:4], 16) % 1000 + 1
+        mock_url = f"https://github.com/{GITHUB_OWNER or 'owner'}/{GITHUB_REPO or 'repo'}/issues/{mock_number}"
         return IssueRef(
             number=mock_number,
-            html_url=f"mock://local/issue/{mock_number}"
+            html_url=mock_url
         )
     add_labels(issue.number, labels)
     append_audit_event(

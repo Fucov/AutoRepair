@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 启动Dashboard服务
-Usage: python scripts/run_dashboard.py [--host 0.0.0.0] [--port 8888]
+Usage: python scripts/run_dashboard.py [--host 127.0.0.1] [--port 8888]
 """
 import argparse
 import sys
@@ -15,7 +15,7 @@ from autorepair.dashboard.api import run_server
 
 def main():
     parser = argparse.ArgumentParser(description="启动FeishuAutoRepair Dashboard服务")
-    parser.add_argument("--host", default="0.0.0.0", help="监听地址 (默认: 0.0.0.0)")
+    parser.add_argument("--host", default="127.0.0.1", help="监听地址 (默认: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8888, help="监听端口 (默认: 8888)")
     
     args = parser.parse_args()

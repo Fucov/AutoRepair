@@ -116,3 +116,39 @@ def upsert_incident_by_fingerprint(incident: Incident, path: Optional[str | Path
             f.write(inc.model_dump_json() + "\n")
     
     return (incident, action)
+
+
+def update_incident_fields(
+    incident_id: str,
+    issue_number: Optional[int] = None,
+    issue_url: Optional[str] = None,
+    status: Optional[str] = None,
+    path: Optional[str | Path] = None,
+) -> None:
+    """
+    更新Incident的指定字段（如issue链接、状态等）并持久化到文件
+    :param incident_id: Incident ID
+    :param issue_number: GitHub Issue编号
+    :param issue_url: GitHub Issue链接
+    :param status: Incident状态
+    :param path: 可选自定义路径
+    """
+    file_path = Path(path) if path else DEFAULT_INCIDENT_PATH
+    incidents = load_incidents(path)
+    
+    for inc in incidents:
+        if inc.incident_id == incident_id:
+            if issue_number is not None:
+                inc.issue_number = issue_number
+            if issue_url is not None:
+                inc.issue_url = issue_url
+            if status is not None:
+                inc.status = status
+            inc.updated_at = datetime.now().isoformat()
+            break
+    
+    # 全量重写文件
+    _ensure_path_exists(file_path)
+    with open(file_path, "w", encoding="utf-8") as f:
+        for inc in incidents:
+            f.write(inc.model_dump_json() + "\n")

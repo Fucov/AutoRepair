@@ -8,6 +8,7 @@ from autorepair.watcher import scan_service_logs_once
 from autorepair.service_registry import get_default_service
 from autorepair.adapters.feishu import send_incident_card
 from autorepair.issue_manager import ensure_issue_for_incident
+from autorepair.incident_store import update_incident_fields
 from autorepair.audit_store import append_audit_event
 
 
@@ -39,14 +40,29 @@ if __name__ == "__main__":
             issue_url = issue_ref.html_url
             incident.issue_number = issue_ref.number
             incident.issue_url = issue_url
+            
+            # 持久化issue链接到incidents.jsonl
+            update_incident_fields(
+                incident.incident_id,
+                issue_number=issue_ref.number,
+                issue_url=issue_url
+            )
+            
             if issue_url:
                 issue_created_count += 1
                 print(f"Created GitHub Issue: {issue_url}")
             
             # 发送飞书卡片（包含Issue链接）
             send_result = send_incident_card(incident)
-            if send_result:
+            if send_result is not None:
                 feishu_sent_count += 1
+                append_audit_event(
+                    "feishu_card_sent" if not send_result.get("mock") else "feishu_card_mocked",
+                    incident.incident_id,
+                    {"card_type": "incident_detected"}
+                )
+            else:
+                append_audit_event("feishu_card_failed", incident.incident_id, {"card_type": "incident_detected"})
             
             # 记录审计
             append_audit_event("incident_created", incident.incident_id, {
@@ -54,9 +70,6 @@ if __name__ == "__main__":
                 "service": incident.service,
                 "issue_url": issue_url
             })
-            
-            append_audit_event("feishu_card_sent" if not send_result.get("mock") else "feishu_card_mocked", 
-                             incident.incident_id, {"card_type": "incident_detected"})
             
             detail = f"{prefix} {incident.incident_id} {summary.error_type} {incident.service_name} {summary.suspected_file}:{summary.line_no} occurrence_count={incident.occurrence_count}"
             if issue_url:

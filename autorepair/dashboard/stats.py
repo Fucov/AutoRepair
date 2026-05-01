@@ -3,89 +3,110 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Any
+import time
+
 from autorepair.incident_store import load_incidents
 from autorepair.repair.job_store import load_repair_jobs
 from autorepair.adapters.github import _load_mock_issues, _load_mock_prs
 
 
+# 简单内存缓存：缓存统计结果，5 秒内重复请求直接返回缓存
+_stats_cache: Dict[str, Dict[str, Any]] = {}
+_STATS_CACHE_TTL = 5  # 缓存过期时间（秒）
+
+
+def _get_cached(key: str, factory) -> Dict[str, Any]:
+    """带 TTL 的简单缓存"""
+    now = time.monotonic()
+    cached = _stats_cache.get(key)
+    if cached and now - cached["_ts"] < _STATS_CACHE_TTL:
+        return cached["data"]
+    data = factory()
+    _stats_cache[key] = {"_ts": now, "data": data}
+    return data
+
+
 def get_system_stats() -> Dict[str, Any]:
-    """获取系统整体统计数据"""
-    incidents = list(load_incidents())
-    jobs = list(load_repair_jobs())
-    issues = _load_mock_issues()
-    prs = _load_mock_prs()
-    
-    now = datetime.now()
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    # 统计Incident数据
-    total_incidents = len(incidents)
-    today_incidents = 0
-    error_type_dist: Dict[str, int] = defaultdict(int)
-    service_dist: Dict[str, int] = defaultdict(int)
-    
-    for inc in incidents:
-        inc_time = datetime.fromisoformat(inc.created_at.replace("Z", "+00:00")).replace(tzinfo=None)
-        if inc_time >= today:
-            today_incidents += 1
-        error_type_dist[inc.error_summary.error_type] += 1
-        service_dist[inc.service_name or inc.service or "unknown"] += 1
-    
-    # 统计修复任务数据
-    total_jobs = len(jobs)
-    job_status_dist: Dict[str, int] = defaultdict(int)
-    successful_repairs = 0
-    failed_repairs = 0
-    
-    for job in jobs:
-        job_status_dist[job.status.value] += 1
-        if job.status.value == "pr_created" or job.status.value == "merged":
-            successful_repairs += 1
-        elif job.status.value == "failed" or job.status.value == "test_failed" or job.status.value == "human_required":
-            failed_repairs += 1
-    
-    repair_success_rate = successful_repairs / max(total_jobs, 1) * 100
-    
-    # 统计Issue和PR数据
-    open_issues = sum(1 for issue in issues if issue.get("state") == "open")
-    closed_issues = sum(1 for issue in issues if issue.get("state") == "closed")
-    open_prs = sum(1 for pr in prs if pr.get("state") == "open")
-    merged_prs = sum(1 for pr in prs if pr.get("merged"))
-    
-    # 最近24小时趋势
-    hourly_incidents = [0] * 24
-    for inc in incidents:
-        inc_time = datetime.fromisoformat(inc.created_at.replace("Z", "+00:00")).replace(tzinfo=None)
-        if inc_time >= now - timedelta(hours=24):
-            hour_diff = int((now - inc_time).total_seconds() / 3600)
-            if 0 <= hour_diff < 24:
-                hourly_incidents[23 - hour_diff] += 1
-    
-    return {
-        "summary": {
-            "total_incidents": total_incidents,
-            "today_incidents": today_incidents,
-            "total_repair_jobs": total_jobs,
-            "successful_repairs": successful_repairs,
-            "failed_repairs": failed_repairs,
-            "repair_success_rate": round(repair_success_rate, 2),
-            "open_issues": open_issues,
-            "closed_issues": closed_issues,
-            "open_prs": open_prs,
-            "merged_prs": merged_prs,
-            "pending_jobs": job_status_dist.get("queued", 0),
-            "running_jobs": job_status_dist.get("running", 0)
-        },
-        "distributions": {
-            "error_type": dict(error_type_dist),
-            "service": dict(service_dist),
-            "job_status": dict(job_status_dist)
-        },
-        "trends": {
-            "last_24h_incidents": hourly_incidents
-        },
-        "updated_at": now.isoformat()
-    }
+    """获取系统整体统计数据（带缓存）"""
+    def _build():
+        incidents = list(load_incidents())
+        jobs = list(load_repair_jobs())
+        issues = _load_mock_issues()
+        prs = _load_mock_prs()
+
+        now = datetime.now()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # 统计Incident数据
+        total_incidents = len(incidents)
+        today_incidents = 0
+        error_type_dist: Dict[str, int] = defaultdict(int)
+        service_dist: Dict[str, int] = defaultdict(int)
+
+        for inc in incidents:
+            inc_time = datetime.fromisoformat(inc.created_at.replace("Z", "+00:00")).replace(tzinfo=None)
+            if inc_time >= today:
+                today_incidents += 1
+            error_type_dist[inc.error_summary.error_type] += 1
+            service_dist[inc.service_name or inc.service or "unknown"] += 1
+
+        # 统计修复任务数据
+        total_jobs = len(jobs)
+        job_status_dist: Dict[str, int] = defaultdict(int)
+        successful_repairs = 0
+        failed_repairs = 0
+
+        for job in jobs:
+            job_status_dist[job.status.value] += 1
+            if job.status.value == "pr_created" or job.status.value == "merged":
+                successful_repairs += 1
+            elif job.status.value == "failed" or job.status.value == "test_failed" or job.status.value == "human_required":
+                failed_repairs += 1
+
+        repair_success_rate = successful_repairs / max(total_jobs, 1) * 100
+
+        # 统计Issue和PR数据
+        open_issues = sum(1 for issue in issues if issue.get("state") == "open")
+        closed_issues = sum(1 for issue in issues if issue.get("state") == "closed")
+        open_prs = sum(1 for pr in prs if pr.get("state") == "open")
+        merged_prs = sum(1 for pr in prs if pr.get("merged"))
+
+        # 最近24小时趋势
+        hourly_incidents = [0] * 24
+        for inc in incidents:
+            inc_time = datetime.fromisoformat(inc.created_at.replace("Z", "+00:00")).replace(tzinfo=None)
+            if inc_time >= now - timedelta(hours=24):
+                hour_diff = int((now - inc_time).total_seconds() / 3600)
+                if 0 <= hour_diff < 24:
+                    hourly_incidents[23 - hour_diff] += 1
+
+        return {
+            "summary": {
+                "total_incidents": total_incidents,
+                "today_incidents": today_incidents,
+                "total_repair_jobs": total_jobs,
+                "successful_repairs": successful_repairs,
+                "failed_repairs": failed_repairs,
+                "repair_success_rate": round(repair_success_rate, 2),
+                "open_issues": open_issues,
+                "closed_issues": closed_issues,
+                "open_prs": open_prs,
+                "merged_prs": merged_prs,
+                "pending_jobs": job_status_dist.get("queued", 0),
+                "running_jobs": job_status_dist.get("running", 0)
+            },
+            "distributions": {
+                "error_type": dict(error_type_dist),
+                "service": dict(service_dist),
+                "job_status": dict(job_status_dist)
+            },
+            "trends": {
+                "last_24h_incidents": hourly_incidents
+            },
+            "updated_at": now.isoformat()
+        }
+
+    return _get_cached("system_stats", _build)
 
 
 def get_incident_list(limit: int = 100) -> List[Dict[str, Any]]:

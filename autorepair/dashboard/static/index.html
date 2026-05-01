@@ -115,6 +115,9 @@
         // 全局数据
         let stats = null;
         let incidents = [];
+        // 全局Chart实例，用于销毁旧图表
+        let trendChart = null;
+        let errorTypeChart = null;
 
         // 加载数据
         async function loadData() {
@@ -156,7 +159,12 @@
             const ctx = document.getElementById('trend-chart').getContext('2d');
             const labels = Array.from({length: 24}, (_, i) => `${23 - i}h`);
             
-            new Chart(ctx, {
+            // 销毁旧图表
+            if (trendChart) {
+                trendChart.destroy();
+            }
+            
+            trendChart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
@@ -188,7 +196,12 @@
                 'rgb(168, 85, 247)'
             ];
 
-            new Chart(ctx, {
+            // 销毁旧图表
+            if (errorTypeChart) {
+                errorTypeChart.destroy();
+            }
+            
+            errorTypeChart = new Chart(ctx, {
                 type: 'pie',
                 data: {
                     labels: labels,

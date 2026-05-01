@@ -400,11 +400,12 @@ def create_issue(
         
         # 生成mock issue数据
         issue_number = int(uuid.uuid4().hex[:4], 16) % 1000 + 1  # 生成1-1000的随机Issue编号
+        mock_url = f"https://github.com/{GITHUB_OWNER or 'owner'}/{GITHUB_REPO or 'repo'}/issues/{issue_number}"
         mock_issue = {
             "number": issue_number,
             "title": title,
             "body": body,
-            "html_url": f"mock://local/issue/{issue_number}",
+            "html_url": mock_url,
             "labels": labels,
             "state": "open",
             "comments": [],
@@ -424,6 +425,13 @@ def create_issue(
         if assignees:
             payload["assignees"] = assignees
         response = httpx.post(url, headers=_get_headers(), json=payload, timeout=10)
+        if response.status_code == 422:
+            error_data = response.json()
+            logger.error(f"创建GitHub Issue失败 (422): {error_data.get('message', 'Unknown error')}")
+            for err in error_data.get('errors', []):
+                logger.error(f"  - {err.get('message', '')}")
+            print(f"创建GitHub Issue失败: {response.text[:200]}")
+            return None
         response.raise_for_status()
         issue_data = response.json()
 
@@ -440,6 +448,7 @@ def create_issue(
         return issue
     except Exception as e:
         logger.error(f"创建GitHub Issue失败: {str(e)}")
+        print(f"创建GitHub Issue失败: {str(e)}")
         return None
 
 
@@ -629,11 +638,12 @@ def create_pull_request(title: str, body: str, head: str, base: str) -> Optional
             return existing
         prs = _load_mock_prs()
         number = max([pr.get("number", 0) for pr in prs] or [0]) + 1
+        pr_url = f"https://github.com/{GITHUB_OWNER or 'owner'}/{GITHUB_REPO or 'repo'}/pull/{number}"
         pr = {
             "number": number,
             "title": title,
             "body": body,
-            "html_url": f"mock://local/pr/{number}",
+            "html_url": pr_url,
             "state": "open",
             "head": head,
             "base": base,
