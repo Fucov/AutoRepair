@@ -18,7 +18,7 @@ def test_process_issue_for_repair_creates_queued_job_for_valid_issue():
              patch("autorepair.adapters.github.GITHUB_TOKEN", ""), \
              patch("autorepair.repair.job_store.DEFAULT_REPAIR_JOBS_PATH", job_path), \
              patch("autorepair.repair.orchestrator.DEFAULT_REPAIR_JOBS_PATH", job_path), \
-             patch("autorepair.adapters.feishu.send_repair_plan_ready"):
+             patch("autorepair.repair.orchestrator.feishu.send_repair_plan_ready"):
             _save_mock_issue({
                 "number": 21,
                 "title": "[Bug] ticket SLA TypeError",
@@ -52,7 +52,7 @@ def test_process_issue_for_repair_marks_needs_info_for_invalid_issue():
              patch("autorepair.adapters.github.GITHUB_TOKEN", ""), \
              patch("autorepair.repair.job_store.DEFAULT_REPAIR_JOBS_PATH", job_path), \
              patch("autorepair.repair.orchestrator.DEFAULT_REPAIR_JOBS_PATH", job_path), \
-             patch("autorepair.adapters.feishu.send_manual_intervention"):
+             patch("autorepair.repair.orchestrator.feishu.send_manual_intervention"):
             _save_mock_issue({
                 "number": 22,
                 "title": "[Bug] broken",

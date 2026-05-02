@@ -37,19 +37,21 @@ def test_extract_traceback_blocks_empty():
 
 def test_read_new_log_text_offset():
     """测试按偏移量读取新增内容"""
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".log") as f:
-        f.write("line1\nline2\nline3\n")
+    content = b"line1\nline2\nline3\n"
+    with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".log") as f:
+        f.write(content)
         temp_path = Path(f.name)
     
     try:
         # 从偏移量0读取全部
         text, offset = read_new_log_text(temp_path, 0)
-        assert text == "line1\nline2\nline3\n"
-        assert offset == len("line1\nline2\nline3\n")
+        expected = content.decode("utf-8")
+        assert text == expected
+        assert offset == len(content)
         
         # 从偏移量6读取剩余内容
         text2, offset2 = read_new_log_text(temp_path, 6)
-        assert text2 == "line2\nline3\n"
+        assert text2 == expected[6:]
         assert offset2 == offset
     finally:
         temp_path.unlink()

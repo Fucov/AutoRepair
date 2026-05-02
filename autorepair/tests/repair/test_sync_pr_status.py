@@ -83,7 +83,7 @@ def test_sync_closed_unmerged_pr_marks_human_required():
              patch("autorepair.adapters.github.GITHUB_TOKEN", ""), \
              patch("autorepair.repair.job_store.DEFAULT_REPAIR_JOBS_PATH", job_path), \
              patch("scripts.sync_pr_status_once.DEFAULT_REPAIR_JOBS_PATH", job_path), \
-             patch("autorepair.adapters.feishu.send_manual_intervention"):
+             patch("scripts.sync_pr_status_once.feishu.send_manual_intervention_card"):
             _save_mock_issue({
                 "number": 32,
                 "title": "Bug",

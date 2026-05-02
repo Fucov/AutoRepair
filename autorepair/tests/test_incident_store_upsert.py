@@ -55,6 +55,7 @@ def test_upsert_incident_created():
 
 def test_upsert_incident_updated():
     """测试相同指纹第二次插入时action为updated，occurrence_count增加"""
+    import time
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonl") as f:
         temp_path = Path(f.name)
     
@@ -73,6 +74,9 @@ def test_upsert_incident_updated():
         inc1, action1 = upsert_incident_by_fingerprint(incident1, temp_path)
         assert action1 == "created"
         assert inc1.occurrence_count == 1
+        
+        # 小延迟确保第二次时间晚于第一次
+        time.sleep(0.01)
         
         # 第二次插入相同指纹
         incident2 = Incident(

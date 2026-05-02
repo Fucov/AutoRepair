@@ -297,19 +297,46 @@ async def api_trigger_run_repair():
 async def api_trigger_sync_prs():
     """手动触发PR状态同步 - 扫描pr_created job，检查PR是否合并"""
     try:
-        from scripts.sync_pr_status_once import sync_once
-        sync_once()
-        
-        from autorepair.repair.job_store import load_repair_jobs
+        from autorepair.repair.job_store import DEFAULT_REPAIR_JOBS_PATH, load_repair_jobs
         from autorepair.repair.schemas import RepairJobStatus
-        jobs = [job for job in load_repair_jobs() if job.status in {RepairJobStatus.merged, RepairJobStatus.human_required}]
-        
+
+        jobs = [job for job in load_repair_jobs(DEFAULT_REPAIR_JOBS_PATH) if job.status == RepairJobStatus.pr_created]
+        if not jobs:
+            return TriggerResponse(
+                success=True,
+                message="没有需要同步的PR状态",
+                data={"updated_jobs": 0}
+            )
+
+        # 内联 sync_once 逻辑，避免跨包导入问题
+        merged_count = 0
+        closed_count = 0
+        for job in jobs:
+            from autorepair.adapters.github import get_pull_request, close_issue, comment_issue, replace_autorepair_status_label
+            from autorepair.repair.job_store import update_repair_job
+            if job.pr_number is None:
+                continue
+            pr = get_pull_request(job.pr_number)
+            if pr is None or pr.state == "open":
+                continue
+            if pr.merged:
+                comment_issue(job.issue_number, f"AutoRepair PR #{job.pr_number} has been merged. Closing this Issue.")
+                close_issue(job.issue_number)
+                replace_autorepair_status_label(job.issue_number, "autorepair:closed")
+                update_repair_job(job.job_id, path=DEFAULT_REPAIR_JOBS_PATH, status=RepairJobStatus.merged)
+                merged_count += 1
+            else:
+                comment_issue(job.issue_number, f"AutoRepair PR #{job.pr_number} was closed without merge.")
+                replace_autorepair_status_label(job.issue_number, "autorepair:human-required")
+                update_repair_job(job.job_id, path=DEFAULT_REPAIR_JOBS_PATH, status=RepairJobStatus.human_required, last_error="PR closed without merge")
+                closed_count += 1
+
         return TriggerResponse(
             success=True,
-            message=f"PR状态同步完成",
+            message=f"PR状态同步完成：合并{merged_count}个，关闭{closed_count}个",
             data={
-                "updated_jobs": len(jobs),
-                "jobs": [{"job_id": job.job_id, "status": job.status.value} for job in jobs[-5:]]
+                "merged": merged_count,
+                "closed_without_merge": closed_count,
             }
         )
     except Exception as e:

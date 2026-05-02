@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent.resolve()))
@@ -10,6 +11,7 @@ from autorepair.repair.repo_lock import DEFAULT_LOCK_DIR
 from autorepair.repair.job_store import load_repair_jobs
 from autorepair.adapters.github import _is_github_configured, _load_mock_issues
 from autorepair.incident_store import load_incidents
+from autorepair.log_parser import extract_error_summary
 import subprocess
 import git
 
@@ -63,9 +65,9 @@ def main() -> int:
     results.append(check("Demo服务存在", service_exists, service.repo_path))
     
     # 6. services.yaml 是否可读取
-    from autorepair.config import SERVICES_CONFIG_PATH
-    services_yaml_exists = Path(SERVICES_CONFIG_PATH).exists()
-    results.append(check("services.yaml", services_yaml_exists, str(SERVICES_CONFIG_PATH)))
+    from autorepair.service_registry import DEFAULT_CONFIG_PATH
+    services_yaml_exists = Path(DEFAULT_CONFIG_PATH).exists()
+    results.append(check("services.yaml", services_yaml_exists, str(DEFAULT_CONFIG_PATH)))
     
     # 7. Template IDs 是否配置
     from autorepair.adapters.feishu import FEISHU_CARD_TEMPLATES
@@ -96,6 +98,56 @@ def main() -> int:
         results.append(check("pytest可用", pytest_available, result.stdout.strip() if pytest_available else ""))
     except Exception:
         results.append(check("pytest可用", False, "pytest命令执行失败"))
+
+    # 11. 检查 ticket-timezone-sla 主线Bug是否能被正确触发
+    try:
+        from demo_service.ticket_service import submit_ticket
+        test_payload = {
+            "customer_id": "c_check",
+            "title": "检查主线Bug",
+            "priority": "P1",
+            "channel": "feishu",
+            "sla_deadline": "2099-01-01T18:00:00+08:00",
+            "idempotency_key": "evt_check_001"
+        }
+        bug_triggered = False
+        bug_type_ok = False
+        try:
+            submit_ticket(test_payload)
+        except TypeError as e:
+            bug_triggered = True
+            error_msg = str(e).lower()
+            if "offset-naive" in error_msg or "offset-aware" in error_msg or "timezone" in error_msg:
+                bug_type_ok = True
+        results.append(check(
+            "ticket-timezone-sla主线Bug",
+            bug_triggered and bug_type_ok,
+            "TypeError: can't compare offset-naive and offset-aware datetimes"
+            if (bug_triggered and bug_type_ok)
+            else ("未触发TypeError" if not bug_triggered else "错误类型不匹配")
+        ))
+    except Exception as e:
+        results.append(check("ticket-timezone-sla主线Bug", False, str(e)))
+
+    # 12. 检查 log_parser 能正确提取主线Bug特征
+    try:
+        sample_traceback = '''Traceback (most recent call last):
+  File "demo_service/ticket_service.py", line 30, in submit_ticket
+    if deadline < datetime.utcnow():
+TypeError: can't compare offset-naive and offset-aware datetimes'''
+        summary = extract_error_summary(sample_traceback)
+        parser_ok = (
+            summary is not None
+            and summary.error_type == "TypeError"
+            and "ticket_service.py" in (summary.suspected_file or "")
+        )
+        results.append(check(
+            "log_parser提取主线Bug",
+            parser_ok,
+            f"{summary.error_type} at {summary.suspected_file}:{summary.line_no}" if summary else "无法提取"
+        ))
+    except Exception as e:
+        results.append(check("log_parser提取主线Bug", False, str(e)))
     
     # 汇总
     print("\n" + "=" * 60)

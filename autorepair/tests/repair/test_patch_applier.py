@@ -1,4 +1,5 @@
 import tempfile
+import pytest
 from pathlib import Path
 from unittest.mock import patch
 from autorepair.repair.patch_applier import apply_patch_plan
@@ -6,16 +7,10 @@ from autorepair.repair.patch_schema import PatchPlan, FilePatch
 
 
 def test_patch_applier_forbids_modifying_env_file():
-    plan = PatchPlan(
-        summary="test",
-        files=[FilePatch(path=".env", operation="replace", old="A", new="B")],
-        tests_to_run=["pytest -q"],
-        risk_level="low",
-        confidence=0.9
-    )
-    result = apply_patch_plan(plan, "/tmp")
-    assert result.ok is False
-    assert ".env" in (result.error or "")
+    """FilePatch validator 拒绝 .env 路径，这是第一道安全防线"""
+    import pydantic
+    with pytest.raises(pydantic.ValidationError, match=r"\.env"):
+        FilePatch(path=".env", operation="replace", old="A", new="B")
 
 
 def test_patch_applier_fails_when_old_not_found():

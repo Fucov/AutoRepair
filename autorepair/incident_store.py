@@ -54,6 +54,20 @@ def load_incidents(path: Optional[str | Path] = None) -> List[Incident]:
     return incidents
 
 
+def get_incident_by_id(incident_id: str, path: Optional[str | Path] = None) -> Optional[Incident]:
+    """
+    根据incident_id查找Incident
+    :param incident_id: 事件ID
+    :param path: 可选自定义路径
+    :return: Incident对象，如果不存在返回None
+    """
+    incidents = load_incidents(path)
+    for incident in incidents:
+        if incident.incident_id == incident_id:
+            return incident
+    return None
+
+
 def has_fingerprint(fingerprint: str, path: Optional[str | Path] = None) -> bool:
     """
     检查指定fingerprint是否已经存在

@@ -405,7 +405,7 @@ def create_issue(
             "labels": labels,
             "state": "open",
             "comments": [],
-            "assignees": [],
+            "assignees": [GITHUB_ASSIGNEE] if GITHUB_ASSIGNEE else ["AutoRepair"],
         }
         _save_mock_issue(mock_issue)
         

@@ -100,3 +100,16 @@ def update_repair_job(job_id: str, path: str | Path | None = None, **fields: Any
             _write_jobs(jobs, path)
             return updated
     raise ValueError(f"Repair job not found: {job_id}")
+
+
+def find_jobs_by_incident_id(incident_id: str, path: str | Path | None = None) -> list[RepairJob]:
+    return [job for job in load_repair_jobs(path) if job.incident_id == incident_id]
+
+
+def find_jobs_by_issue_number(issue_number: int, path: str | Path | None = None) -> list[RepairJob]:
+    return [job for job in load_repair_jobs(path) if job.issue_number == issue_number]
+
+
+def find_next_queued_job(path: str | Path | None = None) -> RepairJob | None:
+    queued = [job for job in load_repair_jobs(path) if job.status == RepairJobStatus.queued]
+    return sorted(queued, key=lambda job: job.created_at)[0] if queued else None
