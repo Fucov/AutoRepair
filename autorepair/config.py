@@ -14,6 +14,14 @@ class Config:
     FEISHU_APP_ID = os.getenv("FEISHU_APP_ID")
     FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET")
     FEISHU_CHAT_ID = os.getenv("FEISHU_CHAT_ID")
+    FEISHU_TENANT_ACCESS_TOKEN = os.getenv("FEISHU_TENANT_ACCESS_TOKEN", "")
+    
+    # 飞书文档配置
+    FEISHU_DOC_FOLDER_TOKEN = os.getenv("FEISHU_DOC_FOLDER_TOKEN")
+    FEISHU_DOC_PUBLIC_READABLE = os.getenv("FEISHU_DOC_PUBLIC_READABLE", "false").lower() == "true"
+    FEISHU_DOC_SHARE_MEMBER_ID = os.getenv("FEISHU_DOC_SHARE_MEMBER_ID")
+    FEISHU_DOC_SHARE_MEMBER_TYPE = os.getenv("FEISHU_DOC_SHARE_MEMBER_TYPE", "openid")
+    FEISHU_DOC_BASE_URL = os.getenv("FEISHU_DOC_BASE_URL", "https://xxx.feishu.cn/docx")
     
     # LLM配置（优先使用通用LLM配置，兼容OpenAI接口）
     LLM_API_KEY = os.getenv("LLM_API_KEY", os.getenv("ARK_API_KEY", ""))

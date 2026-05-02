@@ -9,7 +9,7 @@ from autorepair.adapters.github import (
     list_open_bug_issues,
     replace_autorepair_status_label,
 )
-from autorepair.incident_store import upsert_incident_from_issue
+from autorepair.incident_store import create_incident_from_issue
 from autorepair.issue_validator import validate_bug_issue
 from autorepair.repair.job_store import find_active_job_by_issue
 from autorepair.repair.orchestrator import process_issue_for_repair
@@ -46,7 +46,7 @@ def main() -> int:
             continue
 
         # 对合理的Issue，创建或关联Incident
-        incident = upsert_incident_from_issue(issue)
+        incident = create_incident_from_issue(issue)
         print(f"Issue #{issue.number} 关联Incident: {incident.incident_id}")
 
         # 进入Triage/RepairJob队列

@@ -33,6 +33,9 @@ class RepairJob(BaseModel):
     job_id: str = Field(default_factory=lambda: f"JOB-{uuid.uuid4().hex[:12]}")
     incident_id: str
     issue_number: int
+    issue_url: str | None = None
+    report_url: str | None = None
+    service_name: str | None = None
     repo_owner: str
     repo_name: str
     base_branch: str
@@ -42,6 +45,7 @@ class RepairJob(BaseModel):
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
     policy_decision: str | dict[str, Any] | None = None
+    policy_result: str | None = None
     risk_level: str = "low"
     pr_number: int | None = None
     pr_url: str | None = None

@@ -68,6 +68,34 @@ def get_incident_by_id(incident_id: str, path: Optional[str | Path] = None) -> O
     return None
 
 
+def find_incident_by_issue_number(issue_number: int, path: Optional[str | Path] = None) -> Optional[Incident]:
+    """
+    根据Issue编号查找关联的Incident
+    :param issue_number: GitHub Issue编号
+    :param path: 可选自定义路径
+    :return: Incident对象，如果不存在返回None
+    """
+    incidents = load_incidents(path)
+    for incident in incidents:
+        if incident.issue_number == issue_number:
+            return incident
+    return None
+
+
+def find_incident_by_issue_url(issue_url: str, path: Optional[str | Path] = None) -> Optional[Incident]:
+    """
+    根据Issue URL查找关联的Incident
+    :param issue_url: GitHub Issue URL
+    :param path: 可选自定义路径
+    :return: Incident对象，如果不存在返回None
+    """
+    incidents = load_incidents(path)
+    for incident in incidents:
+        if incident.issue_url == issue_url:
+            return incident
+    return None
+
+
 def has_fingerprint(fingerprint: str, path: Optional[str | Path] = None) -> bool:
     """
     检查指定fingerprint是否已经存在
@@ -132,13 +160,23 @@ def upsert_incident_by_fingerprint(incident: Incident, path: Optional[str | Path
     return (incident, action)
 
 
-def upsert_incident_from_issue(issue: "GitHubIssue") -> Incident:
-    """从GitHub Issue创建或更新Incident，用于手动提交的Bug Issue"""
+def create_incident_from_issue(issue: "GitHubIssue", service: Optional["TargetService"] = None) -> Incident:
+    """
+    从GitHub Issue创建Incident，复用已存在的同Issue Incident
+    :param issue: GitHubIssue对象
+    :param service: 关联的TargetService对象
+    :return: Incident对象
+    """
     import uuid
     from datetime import datetime
     import re
     from .adapters.github import GitHubIssue
-    from .schemas import ErrorSummary
+    from .schemas import ErrorSummary, TargetService
+
+    # 先查找是否已存在同Issue的Incident
+    existing = find_incident_by_issue_number(issue.number)
+    if existing:
+        return existing
 
     body = issue.body or ""
     title = issue.title or ""
@@ -153,12 +191,10 @@ def upsert_incident_from_issue(issue: "GitHubIssue") -> Incident:
     if not incident_id:
         incident_id = f"INC-GH-{issue.number}-{uuid.uuid4().hex[:6]}"
 
-    # 查找是否已存在
-    existing = None
-    for inc in load_incidents():
-        if inc.incident_id == incident_id:
-            existing = inc
-            break
+    # 查找是否已存在同ID的Incident
+    existing = get_incident_by_id(incident_id)
+    if existing:
+        return existing
 
     if existing:
         existing.occurrence_count += 1
@@ -205,11 +241,14 @@ def upsert_incident_from_issue(issue: "GitHubIssue") -> Incident:
         line_no = int(line_match.group(1))
 
     now = datetime.utcnow().isoformat()
+    service_name = service.name if service else "demo_service"
+    
     incident = Incident(
         incident_id=incident_id,
         source="github_issue",
-        service="demo_service",
-        service_name="demo_service",
+        service=service_name,
+        service_name=service_name,
+        status="NEW",
         error_summary=ErrorSummary(
             error_type=error_type,
             message=error_message,
@@ -224,6 +263,8 @@ def upsert_incident_from_issue(issue: "GitHubIssue") -> Incident:
         occurrence_count=1,
         issue_number=issue.number,
         issue_url=issue.html_url,
+        first_seen_at=now,
+        last_seen_at=now,
     )
 
     append_incident(incident)
