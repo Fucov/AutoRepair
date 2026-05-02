@@ -1,5 +1,7 @@
 from __future__ import annotations
+import asyncio
 from pathlib import Path
+from typing import Set
 from pydantic import BaseModel
 from autorepair.adapters.llm_client import LLMClient as ArkClient
 from autorepair.adapters.github import (
@@ -24,6 +26,7 @@ from autorepair.repair.job_store import (
     update_repair_job,
     find_jobs_by_incident_id,
     find_jobs_by_issue_number,
+    load_repair_jobs,
 )
 from autorepair.repair.patch_applier import apply_patch_plan
 from autorepair.repair.patch_prompt import build_patch_prompt
@@ -262,3 +265,50 @@ Timezone-aware datetime object compared with naive datetime object in SLA deadli
                 pass
             
             return RepairExecutionResult(success=False, job=job, error=error_msg)
+
+
+async def execute_repair_job_async(job: RepairJob) -> RepairExecutionResult:
+    """异步执行单个修复任务"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, execute_next_repair_job)
+
+
+async def process_all_queued_jobs(max_concurrent: int = 3) -> list[RepairExecutionResult]:
+    """异步处理所有排队中的任务，不同仓库可并发执行"""
+    processed_repos: Set[str] = set()
+    running_tasks = []
+    results = []
+    
+    while True:
+        # 收集所有可执行的任务（不同仓库的）
+        queued_jobs = [job for job in load_repair_jobs() if job.status == RepairJobStatus.queued]
+        available_jobs = []
+        
+        for job in queued_jobs:
+            repo_key = f"{job.repo_owner}/{job.repo_name}"
+            if repo_key not in processed_repos and not _has_active_job_for_issue(job.issue_number):
+                available_jobs.append(job)
+                processed_repos.add(repo_key)
+                
+                if len(available_jobs) + len(running_tasks) >= max_concurrent:
+                    break
+        
+        if not available_jobs and not running_tasks:
+            break
+            
+        # 启动新的任务
+        for job in available_jobs:
+            task = asyncio.create_task(execute_repair_job_async(job))
+            running_tasks.append(task)
+        
+        # 等待任意任务完成
+        if running_tasks:
+            done, running_tasks = await asyncio.wait(running_tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                result = task.result()
+                results.append(result)
+                if result.job:
+                    repo_key = f"{result.job.repo_owner}/{result.job.repo_name}"
+                    processed_repos.discard(repo_key)
+    
+    return results

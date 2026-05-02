@@ -86,6 +86,30 @@
             <div id="action-message" class="mt-4 p-3 rounded hidden"></div>
         </div>
 
+        <!-- 待执行修复任务 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <h3 class="text-lg font-semibold mb-4">🔧 待执行修复任务</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b">
+                            <th class="text-left py-3 px-4">任务ID</th>
+                            <th class="text-left py-3 px-4">事件ID</th>
+                            <th class="text-left py-3 px-4">Issue编号</th>
+                            <th class="text-left py-3 px-4">状态</th>
+                            <th class="text-left py-3 px-4">PR链接</th>
+                            <th class="text-left py-3 px-4">创建时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="repair-jobs-table">
+                        <tr>
+                            <td colspan="6" class="py-4 text-center text-gray-500">加载中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- 最近Incident列表 -->
         <div class="bg-white rounded-lg shadow p-6">
             <h3 class="text-lg font-semibold mb-4">最近Incident</h3>
@@ -147,6 +171,11 @@
                 const incidentsRes = await fetch('/api/incidents?limit=10');
                 incidents = await incidentsRes.json();
                 renderIncidentTable(incidents);
+
+                // 加载修复任务列表
+                const jobsRes = await fetch('/api/repair_jobs?limit=10');
+                const jobs = await jobsRes.json();
+                renderRepairJobsTable(jobs);
 
                 showMessage('数据加载成功', 'success');
             } catch (error) {
@@ -246,6 +275,48 @@
             });
         }
 
+        // 渲染修复任务表格
+        function renderRepairJobsTable(jobs) {
+            const tbody = document.getElementById('repair-jobs-table');
+            tbody.innerHTML = '';
+
+            if (jobs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-gray-500">暂无修复任务</td></tr>';
+                return;
+            }
+
+            jobs.forEach(job => {
+                const row = document.createElement('tr');
+                row.className = 'border-b hover:bg-gray-50';
+                
+                // 状态样式
+                let statusClass = '';
+                if (job.status === 'queued') {
+                    statusClass = 'bg-yellow-100 text-yellow-800';
+                } else if (job.status === 'in_progress' || job.status === 'running') {
+                    statusClass = 'bg-blue-100 text-blue-800';
+                } else if (job.status.includes('fail') || job.status.includes('error')) {
+                    statusClass = 'bg-red-100 text-red-800';
+                } else {
+                    statusClass = 'bg-green-100 text-green-800';
+                }
+
+                row.innerHTML = `
+                    <td class="py-3 px-4 font-mono text-sm">${job.job_id.slice(0, 8)}</td>
+                    <td class="py-3 px-4 font-mono text-sm">${job.incident_id ? job.incident_id.slice(0, 8) : '-'}</td>
+                    <td class="py-3 px-4">${job.issue_number ? '#' + job.issue_number : '-'}</td>
+                    <td class="py-3 px-4">
+                        <span class="${statusClass} px-2 py-1 rounded text-xs">${job.status}</span>
+                    </td>
+                    <td class="py-3 px-4">
+                        ${job.pr_url ? `<a href="${job.pr_url}" target="_blank" class="text-blue-600 hover:underline">#${job.pr_number}</a>` : '-'}
+                    </td>
+                    <td class="py-3 px-4 text-sm text-gray-500">${new Date(job.created_at).toLocaleString('zh-CN')}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
         // 触发操作
         async function triggerAction(action) {
             try {
@@ -286,8 +357,33 @@
             }
         }
 
-        // 页面加载完成后加载数据
-        document.addEventListener('DOMContentLoaded', loadData);
+        // 长轮询实时更新
+        let lastEventId = 0;
+        async function startLongPoll() {
+            try {
+                const res = await fetch(`/api/events/long-poll?last_event_id=${lastEventId}`);
+                const data = await res.json();
+                
+                if (data.events.length > 0) {
+                    // 有新事件，刷新数据
+                    lastEventId = data.last_event_id;
+                    loadData();
+                    showMessage('数据已更新', 'success');
+                }
+                
+                // 无论是否有事件，立即发起下一次长轮询
+                startLongPoll();
+            } catch (error) {
+                // 连接出错，3秒后重试
+                setTimeout(startLongPoll, 3000);
+            }
+        }
+
+        // 页面加载完成后加载数据并启动长轮询
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData();
+            startLongPoll();
+        });
     </script>
 </body>
 </html>

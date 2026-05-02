@@ -8,6 +8,8 @@ import uvicorn
 from pathlib import Path
 import sys
 import os
+import asyncio
+from collections import deque
 
 # 导入现有统计模块
 from autorepair.dashboard.stats import (
@@ -30,9 +32,34 @@ from autorepair.cards import (
     build_repair_plan_ready_variables,
     build_manual_intervention_variables,
 )
+from autorepair.repair.job_store import create_repair_job
+from autorepair.repair.schemas import RepairJobStatus
 from autorepair.config import config, LOG_PATH
 
 app = FastAPI(title="FeishuAutoRepair Dashboard", version="1.0.0")
+
+# 事件系统：用于实时更新
+EVENT_QUEUE = deque(maxlen=100)
+EVENT_WAITERS: list[asyncio.Future] = []
+LAST_EVENT_ID = 0
+
+def push_event(event_type: str, data: dict = None):
+    """推送事件到所有等待的客户端"""
+    global LAST_EVENT_ID
+    LAST_EVENT_ID += 1
+    event = {
+        "id": LAST_EVENT_ID,
+        "type": event_type,
+        "data": data or {},
+        "timestamp": datetime.now().isoformat()
+    }
+    EVENT_QUEUE.append(event)
+    
+    # 唤醒所有等待的请求
+    for future in EVENT_WAITERS:
+        if not future.done():
+            future.set_result(event)
+    EVENT_WAITERS.clear()
 
 # 静态文件托管
 static_dir = Path(__file__).parent / "static"
@@ -64,9 +91,12 @@ async def api_get_issues(limit: Optional[int] = 100) -> List[Dict[str, Any]]:
     return get_issue_list(limit=limit)
 
 @app.get("/api/repair_jobs")
-async def api_get_repair_jobs(limit: Optional[int] = 100) -> List[Dict[str, Any]]:
-    """获取修复任务列表"""
-    return get_repair_job_list(limit=limit)
+async def api_get_repair_jobs(limit: Optional[int] = 100, status: Optional[str] = None) -> List[Dict[str, Any]]:
+    """获取修复任务列表，支持按状态筛选"""
+    jobs = get_repair_job_list(limit=limit)
+    if status:
+        jobs = [job for job in jobs if job["status"] == status]
+    return jobs
 
 @app.get("/api/prs")
 async def api_get_prs(limit: Optional[int] = 100) -> List[Dict[str, Any]]:
@@ -216,20 +246,43 @@ async def api_trigger_scan_issues():
 
             if has_error_keyword or has_traceback:
                 suitable_count += 1
+                # 创建修复任务（补全所有必填参数）
+                import uuid
+                from autorepair.config import config
+                repair_branch = f"autorepair/issue-{issue.number}-{uuid.uuid4().hex[:6]}"
+                repair_job = create_repair_job(
+                    incident_id=issue_id,
+                    issue_number=issue.number,
+                    repo_owner=config.GITHUB_OWNER or "default-owner",
+                    repo_name=config.GITHUB_REPO or "default-repo",
+                    base_branch="main",
+                    repair_branch=repair_branch,
+                    worktree_path=f"/tmp/worktree/{repair_branch}",
+                    policy_decision={"decision": "auto_fix", "confidence": "high"},
+                    risk_level="low",
+                )
                 variables = build_repair_plan_ready_variables(
                     incident_id=issue_id,
                     service_name=service.name,
                     root_cause="系统检测到可自动修复的代码错误",
                     fix_strategy="分析Traceback并生成修复补丁",
                     risk_level="低风险",
-                    policy_summary="允许进入自动修复"
+                    policy_summary="允许进入自动修复",
+                    issue_number=issue.number,
+                    issue_url=issue.html_url,
+                    job_id=repair_job.job_id
                 )
                 send_template_card("repair_plan_ready", variables)
                 append_audit_event("repair_plan_generated", issue_id, {
                     "issue_number": issue.number,
-                    "issue_url": issue.html_url
+                    "issue_url": issue.html_url,
+                    "job_id": repair_job.job_id
                 })
-                details.append(f"#{issue.number}: 适合自动修复，已发送修复计划卡片")
+                append_audit_event("repair_job_created", issue_id, {
+                    "job_id": repair_job.job_id,
+                    "issue_number": issue.number
+                })
+                details.append(f"#{issue.number}: 适合自动修复，已创建修复任务 {repair_job.job_id} 并发送通知卡片")
             else:
                 manual_count += 1
                 variables = build_manual_intervention_variables(
@@ -246,7 +299,7 @@ async def api_trigger_scan_issues():
                 })
                 details.append(f"#{issue.number}: 需要人工介入，已发送通知卡片")
 
-        return TriggerResponse(
+        response = TriggerResponse(
             success=True,
             message=f"Issue扫描完成：发现{len(issues)}个Issue，{suitable_count}个适合修复，{manual_count}个需要人工介入",
             data={
@@ -256,6 +309,12 @@ async def api_trigger_scan_issues():
                 "details": details
             }
         )
+        push_event("issues_scanned", {
+            "issues_found": len(issues), 
+            "suitable_for_fix": suitable_count,
+            "jobs_created": suitable_count
+        })
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Issue扫描失败: {str(e)}")
 
@@ -285,13 +344,46 @@ async def api_trigger_run_repair():
                 }
             )
         
-        return TriggerResponse(
+        response = TriggerResponse(
             success=True,
             message="没有待执行的修复任务",
             data={"jobs_created": 0}
         )
+        push_event("repair_executed", {"job_id": result.job.job_id if result.job else None, "success": True})
+        return response
     except Exception as e:
+        push_event("repair_executed", {"success": False, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"修复任务执行失败: {str(e)}")
+
+
+@app.post("/api/trigger/run_all_repairs", response_model=TriggerResponse)
+async def api_trigger_run_all_repairs(max_concurrent: int = 3):
+    """手动触发所有排队修复任务 - 支持并发执行不同仓库的任务"""
+    try:
+        from autorepair.repair.executor import process_all_queued_jobs
+        results = await process_all_queued_jobs(max_concurrent=max_concurrent)
+        
+        success_count = sum(1 for r in results if r.success)
+        total_count = len(results)
+        
+        push_event("all_repairs_executed", {
+            "total_jobs": total_count,
+            "success_count": success_count,
+            "failed_count": total_count - success_count
+        })
+        
+        return TriggerResponse(
+            success=True,
+            message=f"批量修复任务完成：总任务数{total_count}，成功{success_count}，失败{total_count - success_count}",
+            data={
+                "total_jobs": total_count,
+                "success_count": success_count,
+                "failed_count": total_count - success_count
+            }
+        )
+    except Exception as e:
+        push_event("all_repairs_executed", {"success": False, "error": str(e)})
+        raise HTTPException(status_code=500, detail=f"批量修复任务执行失败: {str(e)}")
 
 @app.post("/api/trigger/sync_prs", response_model=TriggerResponse)
 async def api_trigger_sync_prs():
@@ -344,55 +436,41 @@ async def api_trigger_sync_prs():
 
 @app.post("/api/trigger/send_digest", response_model=TriggerResponse)
 async def api_trigger_send_digest():
-    """手动发送统计摘要 - 基于当前系统数据生成飞书摘要卡片"""
+    """手动触发发送日报摘要"""
     try:
-        service = get_default_service()
-        current_stats = get_system_stats()
-        summary = current_stats["summary"]
-        now = datetime.now()
-
-        total = summary["total_incidents"]
-        fixed = summary["successful_repairs"]
-        failed = summary["failed_repairs"]
-        manual = summary["failed_repairs"]
-        success_rate = f"{summary['repair_success_rate']}%"
-
-        summary_sentence = (
-            f"当前共发现 {total} 个问题，自动修复成功 {fixed} 个，{manual} 个需人工介入"
-        )
-
-        variables = build_periodic_digest_variables(
-            period_label=now.strftime("%Y-%m-%d"),
-            summary_sentence=summary_sentence,
-            metric_total=total,
-            metric_fixed=fixed,
-            metric_manual=manual,
-            success_rate=success_rate,
-            avg_triage_time="N/A",
-            avg_repair_time="N/A",
-            top_errors_text="错误类型: " + ", ".join(
-                list(current_stats["distributions"]["error_type"].keys())[:5]
-            ),
-            top_services_text="风险服务: " + service.name,
-            todo_text=f"待处理Issue: {summary['open_issues']}，待合并PR: {summary['open_prs']}"
-        )
-
-        result = send_template_card("periodic_digest", variables)
-        if result:
-            append_audit_event("digest_card_sent", "system", {"card_type": "periodic_digest"})
-            mock_tag = " (模拟)" if result.get("mock") else ""
-            return TriggerResponse(
-                success=True,
-                message=f"统计摘要卡片已发送{mock_tag}",
-                data={"stats": summary}
-            )
-        else:
-            return TriggerResponse(
-                success=False,
-                message="统计摘要卡片发送失败"
-            )
+        from autorepair.cards import send_periodic_digest
+        send_periodic_digest()
+        push_event("digest_sent")
+        return TriggerResponse(success=True, message="统计摘要已发送")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"统计摘要发送失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"发送失败: {str(e)}")
+
+@app.get("/api/events/long-poll")
+async def long_poll_events(last_event_id: int = 0):
+    """长轮询获取事件，没有新事件时请求挂起最多30秒"""
+    # 如果有比last_event_id新的事件，直接返回
+    if EVENT_QUEUE and EVENT_QUEUE[-1]["id"] > last_event_id:
+        # 返回所有未消费的事件
+        new_events = [e for e in EVENT_QUEUE if e["id"] > last_event_id]
+        return {"events": new_events, "last_event_id": EVENT_QUEUE[-1]["id"]}
+    
+    # 没有新事件，等待最多30秒
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    EVENT_WAITERS.append(future)
+    
+    try:
+        # 等待30秒超时
+        event = await asyncio.wait_for(future, timeout=30)
+        return {"events": [event], "last_event_id": event["id"]}
+    except asyncio.TimeoutError:
+        # 超时返回空列表
+        return {"events": [], "last_event_id": last_event_id}
+    finally:
+        # 从等待列表中移除
+        if future in EVENT_WAITERS:
+            EVENT_WAITERS.remove(future)
+
 
 # 配置接口
 @app.get("/api/config")
