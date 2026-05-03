@@ -22,6 +22,7 @@ from autorepair.agent.triage.policy_gate import should_auto_fix
 from autorepair.audit_store import append_audit_event
 from autorepair.config import GITHUB_OWNER, GITHUB_REPO, PROJECT_ROOT
 from autorepair.incident_store import load_incidents, create_incident_from_issue
+from autorepair.dashboard.api import push_event
 from autorepair.issue_validator import validate_bug_issue
 from autorepair.repair.git_workspace import build_repair_branch
 from autorepair.repair.job_store import DEFAULT_REPAIR_JOBS_PATH, create_repair_job
@@ -85,6 +86,11 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
     # 创建或查找关联的Incident
     incident = create_incident_from_issue(issue, service)
     incident_id = incident.incident_id
+    push_event("incident_detected", {
+        "incident_id": incident_id,
+        "issue_number": issue.number,
+        "message": f"故障关联成功: {incident.error_summary.error_type}"
+    })
 
     # 导入报告相关模块
     from autorepair.reports.diagnostic_report_builder import build_diagnostic_report
@@ -108,6 +114,12 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
         
         # 创建诊断报告
         doc_ref = feishu_doc_client.create_diagnostic_report(report)
+        push_event("diagnostic_report_created", {
+            "incident_id": incident_id,
+            "issue_number": issue.number,
+            "report_url": doc_ref.url,
+            "message": "诊断报告生成完成"
+        })
         
         comment_content = f"{validation.suggested_comment}\n\n诊断报告：{doc_ref.url}"
         comment_issue(issue.number, comment_content)
@@ -151,6 +163,12 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
     
     # 创建诊断报告
     doc_ref = feishu_doc_client.create_diagnostic_report(report)
+    push_event("diagnostic_report_created", {
+        "incident_id": incident_id,
+        "issue_number": issue.number,
+        "report_url": doc_ref.url,
+        "message": "诊断报告生成完成"
+    })
     append_audit_event(
         "diagnostic_report_created",
         incident_id,
@@ -189,12 +207,22 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
         report_url=doc_ref.url,
         path=DEFAULT_REPAIR_JOBS_PATH,
     )
+    
+    push_event("repair_job_created", {
+        "job_id": job.job_id,
+        "incident_id": incident_id,
+        "issue_number": issue.number,
+        "report_url": doc_ref.url,
+        "message": "修复任务已加入队列"
+    })
+    
     replace_autorepair_status_label(issue.number, "autorepair:accepted")
     add_labels(issue.number, ["source:issue"] if "source:runtime" not in issue.labels else [])
     comment_issue(issue.number, f"AutoRepair accepted this issue and queued repair job `{job.job_id}`.\n\n诊断报告：{doc_ref.url}")
     append_audit_event("repair_job_queued", incident_id, {"issue_number": issue.number, "job_id": job.job_id, "report_url": doc_ref.url})
     append_audit_event("repair_plan_generated", incident_id, {"job_id": job.job_id, "report_url": doc_ref.url})
     
+    # 发送飞书卡片
     feishu.send_repair_plan_ready(
         incident_id=incident_id,
         service_name=service.name,
@@ -204,4 +232,11 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
         policy_result="accepted",
         report_url=doc_ref.url,
     )
+    
+    push_event("card_sent", {
+        "incident_id": incident_id,
+        "issue_number": issue.number,
+        "job_id": job.job_id,
+        "message": "修复计划卡片已发送"
+    })
     return job

@@ -4,7 +4,7 @@ from pathlib import Path
 # 将项目根目录加入Python路径
 sys.path.append(str(Path(__file__).parent.parent.resolve()))
 
-from autorepair.config import LOG_PATH
+from autorepair.config import LOG_PATH, PROJECT_ROOT
 from autorepair.incident_store import DEFAULT_INCIDENT_PATH
 from autorepair.watch_state import DEFAULT_WATCH_STATE_PATH
 from autorepair.adapters.github import (
@@ -13,6 +13,10 @@ from autorepair.adapters.github import (
     MOCK_GITHUB_PRS_PATH,
 )
 from autorepair.audit_store import DEFAULT_AUDIT_PATH
+from autorepair.repair.job_store import DEFAULT_REPAIR_JOBS_PATH
+
+# 直接定义锁文件路径，避免导入scheduler模块
+REPAIR_LOCK_PATH = PROJECT_ROOT / "autorepair" / "records" / "locks" / "repair_worker.lock"
 
 def reset_file(file_path: Path, description: str):
     """重置文件内容"""
@@ -62,6 +66,23 @@ if __name__ == "__main__":
 
     # 7. 清空审计记录文件
     reset_file(DEFAULT_AUDIT_PATH, "审计记录文件")
+    
+    # 8. 清空RepairJob记录文件
+    reset_file(DEFAULT_REPAIR_JOBS_PATH, "修复任务记录文件")
+    
+    # 9. 删除修复锁文件
+    delete_file(REPAIR_LOCK_PATH, "修复任务锁文件")
+    
+    # 10. 清空本地诊断报告目录
+    reports_dir = PROJECT_ROOT / "autorepair" / "records" / "reports"
+    if reports_dir.exists():
+        import shutil
+        for file in reports_dir.glob("*.md"):
+            try:
+                file.unlink()
+                print(f"✅ 已删除报告文件: {file.name}")
+            except Exception as e:
+                print(f"⚠️  删除报告文件失败: {file.name}, 错误: {str(e)}")
     
     print("=" * 50)
     print("🎉 演示状态清理完成！")

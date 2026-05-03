@@ -53,13 +53,13 @@
 
         <!-- 图表区域 -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-lg font-semibold mb-4">24小时Incident趋势</h3>
-                <canvas id="trend-chart" height="200"></canvas>
+            <div class="bg-white rounded-lg shadow p-3">
+                <h3 class="text-base font-semibold mb-2">24小时Incident趋势</h3>
+                <canvas id="trend-chart" height="120"></canvas>
             </div>
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-lg font-semibold mb-4">错误类型分布</h3>
-                <canvas id="error-type-chart" height="200"></canvas>
+            <div class="bg-white rounded-lg shadow p-3">
+                <h3 class="text-base font-semibold mb-2">错误类型分布</h3>
+                <canvas id="error-type-chart" height="120"></canvas>
             </div>
         </div>
 
@@ -95,7 +95,8 @@
                         <tr class="border-b">
                             <th class="text-left py-3 px-4">任务ID</th>
                             <th class="text-left py-3 px-4">事件ID</th>
-                            <th class="text-left py-3 px-4">Issue编号</th>
+                            <th class="text-left py-3 px-4">Issue</th>
+                            <th class="text-left py-3 px-4">诊断报告</th>
                             <th class="text-left py-3 px-4">状态</th>
                             <th class="text-left py-3 px-4">PR链接</th>
                             <th class="text-left py-3 px-4">创建时间</th>
@@ -107,6 +108,14 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <!-- 实时事件流 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-8">
+            <h3 class="text-lg font-semibold mb-4">⚡ 实时处理事件流</h3>
+            <div class="overflow-y-auto max-h-60 bg-gray-50 rounded p-4" id="event-stream">
+                <div class="text-gray-500 text-center py-4">等待事件...</div>
             </div>
         </div>
 
@@ -304,7 +313,12 @@
                 row.innerHTML = `
                     <td class="py-3 px-4 font-mono text-sm">${job.job_id.slice(0, 8)}</td>
                     <td class="py-3 px-4 font-mono text-sm">${job.incident_id ? job.incident_id.slice(0, 8) : '-'}</td>
-                    <td class="py-3 px-4">${job.issue_number ? '#' + job.issue_number : '-'}</td>
+                    <td class="py-3 px-4">
+                        ${job.issue_url ? `<a href="${job.issue_url}" target="_blank" class="text-blue-600 hover:underline">#${job.issue_number}</a>` : (job.issue_number ? '#' + job.issue_number : '-')}
+                    </td>
+                    <td class="py-3 px-4">
+                        ${job.report_url ? `<a href="${job.report_url}" target="_blank" class="text-blue-600 hover:underline">查看报告</a>` : '-'}
+                    </td>
                     <td class="py-3 px-4">
                         <span class="${statusClass} px-2 py-1 rounded text-xs">${job.status}</span>
                     </td>
@@ -359,13 +373,74 @@
 
         // 长轮询实时更新
         let lastEventId = 0;
+        
+        // 事件类型对应的显示样式和图标
+        const eventTypeConfig = {
+            'incident_detected': { icon: '🚨', class: 'text-red-600', message: '检测到新故障' },
+            'issue_created': { icon: '📝', class: 'text-blue-600', message: 'GitHub Issue已创建' },
+            'diagnostic_report_created': { icon: '📊', class: 'text-purple-600', message: '诊断报告生成完成' },
+            'repair_job_created': { icon: '📋', class: 'text-yellow-600', message: '修复任务已创建' },
+            'repair_started': { icon: '🔧', class: 'text-orange-600', message: '开始执行修复' },
+            'repair_completed': { icon: '✅', class: 'text-green-600', message: '修复完成' },
+            'pr_created': { icon: '🔀', class: 'text-indigo-600', message: 'Pull Request已创建' },
+            'card_sent': { icon: '💌', class: 'text-pink-600', message: '飞书通知已发送' },
+            'error': { icon: '❌', class: 'text-red-600', message: '处理出错' }
+        };
+        
+        // 添加事件到事件流
+        function addEventToStream(event) {
+            const eventStream = document.getElementById('event-stream');
+            // 移除初始提示
+            if (eventStream.querySelector('.text-gray-500.text-center')) {
+                eventStream.innerHTML = '';
+            }
+            
+            const config = eventTypeConfig[event.type] || { icon: 'ℹ️', class: 'text-gray-600', message: event.type };
+            const eventEl = document.createElement('div');
+            eventEl.className = 'mb-2 p-2 rounded bg-white border-l-4 border-blue-200 hover:bg-gray-50 transition-colors';
+            
+            let detail = '';
+            if (event.data) {
+                if (event.data.incident_id) {
+                    detail += `事件ID: ${event.data.incident_id.slice(0, 8)} `;
+                }
+                if (event.data.issue_number) {
+                    detail += `Issue: #${event.data.issue_number} `;
+                }
+                if (event.data.job_id) {
+                    detail += `任务ID: ${event.data.job_id.slice(0, 8)} `;
+                }
+                if (event.data.message) {
+                    detail += event.data.message;
+                }
+            }
+            
+            eventEl.innerHTML = `
+                <span class="font-mono text-xs text-gray-500">${new Date(event.timestamp).toLocaleTimeString('zh-CN')}</span>
+                <span class="ml-2">${config.icon}</span>
+                <span class="ml-1 font-medium ${config.class}">${config.message}</span>
+                ${detail ? `<span class="ml-2 text-sm text-gray-600">${detail}</span>` : ''}
+            `;
+            
+            // 插入到最前面
+            eventStream.insertBefore(eventEl, eventStream.firstChild);
+            
+            // 最多保留50条事件
+            if (eventStream.children.length > 50) {
+                eventStream.removeChild(eventStream.lastChild);
+            }
+        }
+        
         async function startLongPoll() {
             try {
                 const res = await fetch(`/api/events/long-poll?last_event_id=${lastEventId}`);
                 const data = await res.json();
                 
-                if (data.events.length > 0) {
-                    // 有新事件，刷新数据
+                if (data.events && data.events.length > 0) {
+                    // 处理所有新事件
+                    data.events.forEach(event => {
+                        addEventToStream(event);
+                    });
                     lastEventId = data.last_event_id;
                     loadData();
                     showMessage('数据已更新', 'success');

@@ -1,5 +1,7 @@
 import logging
 import json
+import time
+import httpx
 from typing import Dict, Optional, Any
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import *
@@ -7,6 +9,75 @@ from autorepair.config import config
 from autorepair.schemas import Incident
 
 logger = logging.getLogger(__name__)
+
+
+class FeishuTokenManager:
+    """飞书tenant_access_token管理器，自动刷新token"""
+    _instance = None
+    _token: Optional[str] = None
+    _expire_at: float = 0
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    async def get_token(self) -> str:
+        """获取有效的token，过期前5分钟自动刷新"""
+        if self._token and time.time() < self._expire_at - 300:
+            return self._token
+
+        if not config.is_feishu_ready():
+            raise Exception("Feishu configuration not ready")
+
+        url = f"{config.FEISHU_API_BASE_URL}/auth/v3/tenant_access_token/internal"
+        payload = {
+            "app_id": config.FEISHU_APP_ID,
+            "app_secret": config.FEISHU_APP_SECRET
+        }
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+        if data.get("code") != 0:
+            raise Exception(f"Failed to get tenant_access_token: {data.get('msg')}")
+
+        self._token = data["tenant_access_token"]
+        self._expire_at = time.time() + int(data.get("expire", 7200))
+        logger.info(f"Tenant access token refreshed, expires in {data.get('expire', 7200)}s")
+        return self._token
+
+    def get_token_sync(self) -> str:
+        """同步版本的get_token，用于现有同步代码"""
+        if self._token and time.time() < self._expire_at - 300:
+            return self._token
+
+        if not config.is_feishu_ready():
+            raise Exception("Feishu configuration not ready")
+
+        url = f"{config.FEISHU_API_BASE_URL}/auth/v3/tenant_access_token/internal"
+        payload = {
+            "app_id": config.FEISHU_APP_ID,
+            "app_secret": config.FEISHU_APP_SECRET
+        }
+
+        resp = httpx.post(url, json=payload, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if data.get("code") != 0:
+            raise Exception(f"Failed to get tenant_access_token: {data.get('msg')}")
+
+        self._token = data["tenant_access_token"]
+        self._expire_at = time.time() + int(data.get("expire", 7200))
+        logger.info(f"Tenant access token refreshed, expires in {data.get('expire', 7200)}s")
+        return self._token
+
+
+# 全局单例
+token_manager = FeishuTokenManager()
 
 # 飞书卡片模板ID配置
 FEISHU_CARD_TEMPLATES = {

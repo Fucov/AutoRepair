@@ -1,8 +1,13 @@
 import os
-import fcntl
 from pathlib import Path
 from typing import Optional
 from .config import PROJECT_ROOT
+
+# 条件导入fcntl，仅Unix平台可用
+if os.name != 'nt':
+    import fcntl
+else:
+    fcntl = None
 
 REPAIR_LOCK_PATH = PROJECT_ROOT / "autorepair" / "records" / "locks" / "repair_worker.lock"
 
@@ -16,48 +21,64 @@ class Scheduler:
         REPAIR_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
         
         try:
-            self.repair_lock_fd = os.open(REPAIR_LOCK_PATH, os.O_CREAT | os.O_RDWR)
-            # Windows上使用不同的锁机制，简化实现
+            # Windows平台简化实现：基于PID文件的锁
             if os.name == 'nt':
-                # Windows平台简单实现：检查文件是否存在且不为空
-                if os.path.getsize(REPAIR_LOCK_PATH) > 0:
+                if REPAIR_LOCK_PATH.exists():
                     try:
-                        # 尝试读取PID
+                        # 读取文件中的PID
                         with open(REPAIR_LOCK_PATH, 'r') as f:
                             pid = int(f.read().strip())
                         # 检查进程是否存在
-                        import psutil
-                        if psutil.pid_exists(pid):
+                        try:
+                            import psutil
+                            if psutil.pid_exists(pid):
+                                return False
+                        except ImportError:
+                            # 如果没有psutil，直接认为文件存在就是有锁
                             return False
                     except:
+                        # 文件损坏，直接覆盖
                         pass
+                
+                # 写入当前PID
+                with open(REPAIR_LOCK_PATH, 'w') as f:
+                    f.write(str(os.getpid()))
+                self.repair_lock_file = REPAIR_LOCK_PATH
+                return True
             else:
                 # Unix平台使用fcntl锁
+                self.repair_lock_fd = os.open(REPAIR_LOCK_PATH, os.O_CREAT | os.O_RDWR)
                 fcntl.flock(self.repair_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            
-            # 写入当前进程ID
-            os.ftruncate(self.repair_lock_fd, 0)
-            os.write(self.repair_lock_fd, str(os.getpid()).encode())
-            os.fsync(self.repair_lock_fd)
-            return True
+                # 写入当前进程ID
+                os.ftruncate(self.repair_lock_fd, 0)
+                os.write(self.repair_lock_fd, str(os.getpid()).encode())
+                os.fsync(self.repair_lock_fd)
+                return True
         except BlockingIOError:
             # 锁已被持有
             return False
-        except Exception:
+        except Exception as e:
+            print(f"获取锁失败: {str(e)}")
             return False
     
     def release_repair_lock(self) -> None:
         """释放修复锁"""
-        if self.repair_lock_fd is not None:
-            try:
-                if os.name != 'nt':
+        try:
+            if os.name == 'nt':
+                # Windows平台删除PID文件
+                if self.repair_lock_file and self.repair_lock_file.exists():
+                    self.repair_lock_file.unlink()
+                    self.repair_lock_file = None
+            else:
+                # Unix平台释放fcntl锁
+                if self.repair_lock_fd is not None:
                     fcntl.flock(self.repair_lock_fd, fcntl.LOCK_UN)
-                os.close(self.repair_lock_fd)
-                if REPAIR_LOCK_PATH.exists():
-                    os.unlink(REPAIR_LOCK_PATH)
-            except Exception:
-                pass
-            self.repair_lock_fd = None
+                    os.close(self.repair_lock_fd)
+                    if REPAIR_LOCK_PATH.exists():
+                        os.unlink(REPAIR_LOCK_PATH)
+                    self.repair_lock_fd = None
+        except Exception as e:
+            print(f"释放锁失败: {str(e)}")
     
     def is_repair_running(self) -> bool:
         """检查是否有修复任务正在运行"""

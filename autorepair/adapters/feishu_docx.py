@@ -4,6 +4,7 @@ import requests
 from typing import Optional, List, Dict
 from dataclasses import dataclass
 from ..config import config, PROJECT_ROOT
+from .feishu import token_manager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,10 +19,22 @@ class FeishuDocRef:
 class FeishuDocxClient:
     def __init__(self):
         self.base_url = config.FEISHU_API_BASE_URL.rstrip("/")
-        self.headers = {
-            "Authorization": f"Bearer {config.FEISHU_TENANT_ACCESS_TOKEN}",
-            "Content-Type": "application/json"
-        }
+    
+    def _get_headers(self) -> Dict[str, str]:
+        """动态获取带有效token的请求头"""
+        try:
+            token = token_manager.get_token_sync()
+            return {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+        except Exception as e:
+            logger.error(f"获取飞书token失败: {str(e)}")
+            # 降级使用静态配置的token（兼容旧逻辑）
+            return {
+                "Authorization": f"Bearer {config.FEISHU_TENANT_ACCESS_TOKEN}",
+                "Content-Type": "application/json"
+            }
 
     def create_document(self, title: str, folder_token: Optional[str] = None) -> FeishuDocRef:
         """创建飞书文档"""
@@ -32,14 +45,24 @@ class FeishuDocxClient:
         }
         
         try:
-            response = requests.post(url, headers=self.headers, json=payload, timeout=10)
+            headers = self._get_headers()
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            # 打印详细响应信息帮助排查
+            if response.status_code != 200:
+                logger.error(f"飞书API返回错误: 状态码={response.status_code}, 响应内容={response.text}")
             response.raise_for_status()
             data = response.json()
+            
+            if data.get("code") != 0:
+                logger.error(f"飞书API业务错误: code={data.get('code')}, msg={data.get('msg')}")
+                raise Exception(f"飞书API错误: {data.get('msg')}")
+                
             doc_data = data["data"]["document"]
             doc_id = doc_data["document_id"]
             doc_token = doc_data["token"]
             doc_url = f"{config.FEISHU_DOC_BASE_URL}/{doc_id}"
             
+            logger.info(f"飞书文档创建成功: {doc_url}")
             return FeishuDocRef(
                 document_id=doc_id,
                 document_token=doc_token,
@@ -48,6 +71,8 @@ class FeishuDocxClient:
             )
         except Exception as e:
             logger.error(f"创建飞书文档失败: {str(e)}")
+            token_preview = headers.get("Authorization", "")[:20] if 'headers' in locals() else config.FEISHU_TENANT_ACCESS_TOKEN[:10]
+            logger.error(f"请检查配置: FEISHU_TENANT_ACCESS_TOKEN={token_preview}... FEISHU_DOC_FOLDER_TOKEN={config.FEISHU_DOC_FOLDER_TOKEN}")
             # Fallback到本地Markdown
             return self._create_local_markdown_report(title)
 
@@ -60,7 +85,8 @@ class FeishuDocxClient:
         }
         
         try:
-            response = requests.post(url, headers=self.headers, json=payload, timeout=10)
+            headers = self._get_headers()
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
             response.raise_for_status()
         except Exception as e:
             logger.error(f"写入飞书文档失败: {str(e)}")
@@ -75,15 +101,39 @@ class FeishuDocxClient:
         }
         
         try:
-            response = requests.post(url, headers=self.headers, json=payload, timeout=10)
+            headers = self._get_headers()
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            if response.status_code != 200:
+                logger.error(f"添加权限API返回错误: 状态码={response.status_code}, 响应={response.text}")
             response.raise_for_status()
+            data = response.json()
+            if data.get("code") != 0:
+                logger.warning(f"添加飞书文档权限业务错误: code={data.get('code')}, msg={data.get('msg')}，不影响主流程")
         except Exception as e:
             logger.warning(f"添加飞书文档权限失败: {str(e)}，不影响主流程")
 
     def make_public_readable(self, document_token: str) -> bool:
-        """设置文档公开可读"""
-        # 简化实现，实际根据飞书API调整
-        return True
+        """设置文档公开可读（企业内所有人可查看）"""
+        url = f"{self.base_url}/drive/v1/permissions/{document_token}/members?type=docx"
+        payload = {
+            "member_type": "tenant",
+            "member_id": "tenant",
+            "perm": "view"
+        }
+        
+        try:
+            headers = self._get_headers()
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if data.get("code") != 0:
+                logger.warning(f"设置文档公开可读失败: code={data.get('code')}, msg={data.get('msg')}")
+                return False
+            logger.info(f"文档 {document_token} 已设置为企业内公开可读")
+            return True
+        except Exception as e:
+            logger.warning(f"设置文档公开可读失败: {str(e)}，不影响主流程")
+            return False
 
     def create_diagnostic_report(self, report: "DiagnosticReportData") -> FeishuDocRef:
         """创建诊断报告文档"""
