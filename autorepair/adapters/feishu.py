@@ -382,6 +382,7 @@ def send_repair_plan_ready(
             fix_strategy=fix_strategy,
             risk_level=risk_level,
             policy_summary=policy_result,
+            report_url=report_url,
         ),
     )
 

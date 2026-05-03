@@ -60,12 +60,12 @@ async def lifespan(app_instance):
 app = FastAPI(title="FeishuAutoRepair Dashboard", version="1.0.0", lifespan=lifespan)
 
 # 事件系统：用于实时更新
-EVENT_QUEUE = deque(maxlen=100)
+EVENT_QUEUE: deque = deque(maxlen=100)
 EVENT_WAITERS: list[asyncio.Future] = []
 LAST_EVENT_ID = 0
 
 def push_event(event_type: str, data: dict = None):
-    """推送事件到所有等待的客户端"""
+    """推送事件到所有等待的客户端（线程安全）"""
     global LAST_EVENT_ID
     LAST_EVENT_ID += 1
     event = {
@@ -75,8 +75,15 @@ def push_event(event_type: str, data: dict = None):
         "timestamp": datetime.now().isoformat()
     }
     EVENT_QUEUE.append(event)
-    
-    # 唤醒所有等待的请求
+
+    try:
+        if EVENT_WAITERS:
+            loop = EVENT_WAITERS[0].get_loop()
+            loop.call_soon_threadsafe(_resolve_waiters, event)
+    except (IndexError, RuntimeError):
+        pass
+
+def _resolve_waiters(event: dict):
     for future in EVENT_WAITERS:
         if not future.done():
             future.set_result(event)
