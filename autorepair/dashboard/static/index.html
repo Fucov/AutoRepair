@@ -16,6 +16,10 @@
                     <h1 class="text-xl font-bold text-gray-800">🚀 FeishuAutoRepair 自动化修复系统</h1>
                 </div>
                 <div class="flex items-center space-x-4">
+                    <div id="watchdog-status" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-sm">
+                        <span id="watchdog-dot" class="w-2.5 h-2.5 rounded-full bg-gray-400"></span>
+                        <span id="watchdog-label" class="text-gray-500">监控加载中</span>
+                    </div>
                     <span id="last-updated" class="text-sm text-gray-500">最后更新: 加载中...</span>
                     <button onclick="loadData()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
                         刷新数据
@@ -391,6 +395,7 @@
             'pipeline_completed': { icon: '🏁', class: 'text-green-600', message: '全流程执行完成' },
             'pipeline_failed': { icon: '💥', class: 'text-red-600', message: '全流程执行失败' },
             'incident_detected': { icon: '🚨', class: 'text-red-600', message: '检测到新故障' },
+            'incident_updated': { icon: '🔄', class: 'text-yellow-600', message: '故障重复出现' },
             'issue_validated': { icon: '🔍', class: 'text-cyan-600', message: 'Issue合理性检查' },
             'issue_created': { icon: '📝', class: 'text-blue-600', message: 'GitHub Issue已创建' },
             'triage_decision': { icon: '🧠', class: 'text-purple-600', message: '分诊决策完成' },
@@ -406,6 +411,12 @@
             'repair_failed': { icon: '❌', class: 'text-red-600', message: '修复失败' },
             'pr_created': { icon: '🔀', class: 'text-indigo-600', message: 'Pull Request已创建' },
             'card_sent': { icon: '💌', class: 'text-pink-600', message: '飞书通知已发送' },
+            'logs_scanned': { icon: '📋', class: 'text-green-600', message: '日志扫描完成' },
+            'repair_executed': { icon: '🔧', class: 'text-orange-600', message: '修复任务已执行' },
+            'prs_synced': { icon: '🔄', class: 'text-blue-600', message: 'PR状态已同步' },
+            'digest_sent': { icon: '📰', class: 'text-purple-600', message: '统计摘要已发送' },
+            'watchdog_started': { icon: '👁️', class: 'text-green-600', message: '文件监控已启动' },
+            'watchdog_stopped': { icon: '👁️‍🗨️', class: 'text-yellow-600', message: '文件监控已停止' },
             'error': { icon: '❌', class: 'text-red-600', message: '处理出错' }
         };
         
@@ -459,26 +470,50 @@
                 const data = await res.json();
                 
                 if (data.events && data.events.length > 0) {
-                    // 处理所有新事件
                     data.events.forEach(event => {
                         addEventToStream(event);
+                        if (event.type === 'watchdog_started' || event.type === 'watchdog_stopped') {
+                            pollWatchdogStatus();
+                        }
                     });
                     lastEventId = data.last_event_id;
                     loadData();
-                    showMessage('数据已更新', 'success');
                 }
                 
-                // 无论是否有事件，立即发起下一次长轮询
                 startLongPoll();
             } catch (error) {
-                // 连接出错，3秒后重试
                 setTimeout(startLongPoll, 3000);
             }
         }
 
-        // 页面加载完成后加载数据并启动长轮询
+        async function pollWatchdogStatus() {
+            try {
+                const res = await fetch('/api/watchdog/status');
+                const data = await res.json();
+                const dot = document.getElementById('watchdog-dot');
+                const label = document.getElementById('watchdog-label');
+                if (data.running) {
+                    dot.className = 'w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse';
+                    label.textContent = '自动监控中';
+                    label.className = 'text-green-700';
+                } else {
+                    dot.className = 'w-2.5 h-2.5 rounded-full bg-red-400';
+                    label.textContent = '监控已停止';
+                    label.className = 'text-red-600';
+                }
+            } catch (e) {
+                const dot = document.getElementById('watchdog-dot');
+                const label = document.getElementById('watchdog-label');
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-gray-400';
+                label.textContent = '连接失败';
+                label.className = 'text-gray-500';
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             loadData();
+            pollWatchdogStatus();
+            setInterval(pollWatchdogStatus, 10000);
             startLongPoll();
         });
     </script>

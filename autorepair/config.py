@@ -16,14 +16,8 @@ class Config:
     FEISHU_CHAT_ID = os.getenv("FEISHU_CHAT_ID")
     FEISHU_TENANT_ACCESS_TOKEN = os.getenv("FEISHU_TENANT_ACCESS_TOKEN", "")
     
-    # 飞书文档配置
+    # 诊断报告 (已改用 note.ms，飞书文档相关配置已移除)
     FEISHU_TENANT_DOMAIN = os.getenv("FEISHU_TENANT_DOMAIN", "https://xxx.feishu.cn")
-    FEISHU_REPORT_ROOT_FOLDER_TOKEN = os.getenv("FEISHU_REPORT_ROOT_FOLDER_TOKEN")
-    FEISHU_DOC_FOLDER_TOKEN = os.getenv("FEISHU_DOC_FOLDER_TOKEN", FEISHU_REPORT_ROOT_FOLDER_TOKEN)
-    FEISHU_DOC_PUBLIC_READABLE = os.getenv("FEISHU_DOC_PUBLIC_READABLE", "false").lower() == "true"
-    FEISHU_DOC_SHARE_MEMBER_ID = os.getenv("FEISHU_DOC_SHARE_MEMBER_ID")
-    FEISHU_DOC_SHARE_MEMBER_TYPE = os.getenv("FEISHU_DOC_SHARE_MEMBER_TYPE", "openid")
-    FEISHU_DOC_BASE_URL = os.getenv("FEISHU_DOC_BASE_URL", f"{FEISHU_TENANT_DOMAIN}/docx")
     
     # LLM配置（优先使用通用LLM配置，兼容OpenAI接口）
     LLM_API_KEY = os.getenv("LLM_API_KEY", os.getenv("ARK_API_KEY", ""))

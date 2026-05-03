@@ -102,9 +102,9 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
 
     # 导入报告相关模块
     from autorepair.reports.diagnostic_report_builder import build_diagnostic_report
-    from autorepair.adapters.feishu_docx import FeishuDocxClient
-    
-    feishu_doc_client = FeishuDocxClient()
+    from autorepair.adapters.note_report import NoteReportClient
+
+    note_client = NoteReportClient()
     
     if not validation.is_valid:
         # 生成诊断报告
@@ -121,7 +121,7 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
         )
         
         # 创建诊断报告
-        doc_ref = feishu_doc_client.create_diagnostic_report(report)
+        doc_ref = note_client.create_diagnostic_report(report)
         push_event("diagnostic_report_created", {
             "incident_id": incident_id,
             "issue_number": issue.number,
@@ -180,7 +180,7 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
     )
     
     # 创建诊断报告
-    doc_ref = feishu_doc_client.create_diagnostic_report(report)
+    doc_ref = note_client.create_diagnostic_report(report)
     push_event("diagnostic_report_created", {
         "incident_id": incident_id,
         "issue_number": issue.number,

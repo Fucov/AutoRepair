@@ -55,85 +55,96 @@ def build_diagnostic_report(
         traceback_excerpt=traceback_excerpt
     )
 
-def render_diagnostic_report_markdown(report: DiagnosticReportData) -> str:
-    """渲染诊断报告为Markdown格式"""
-    md = f"""# 故障诊断报告
+def _sanitize_path(p: str) -> str:
+    if not p:
+        return p
+    parts = p.replace("\\", "/").split("/")
+    return "/".join(parts[-2:]) if len(parts) > 2 else p
 
-## 基本信息
-- 报告ID：{report.report_id}
-- 事件ID：{report.incident_id}
-- 服务名称：{report.service_name}
-- 生成时间：{report.created_at}
 
-## Issue信息
-- Issue编号：#{report.issue_number}
-- Issue链接：[{report.issue_url}]({report.issue_url})
+def _sanitize_traceback(tb: str, max_lines: int = 10) -> str:
+    lines = tb.strip().splitlines()
+    kept = []
+    for line in lines[:max_lines]:
+        line = _sanitize_path(line)
+        kept.append(line)
+    if len(lines) > max_lines:
+        kept.append(f"... (共 {len(lines)} 行，已截断)")
+    return "\n".join(kept)
 
-## 错误摘要
-{report.error_brief}
 
-## 证据摘要
-{report.evidence_summary}
-
-## 合理性检查结果
-{report.validation_result}
-
-## 根因判断
-{report.root_cause}
-
-## 修复策略
-{chr(10).join([f"- {s}" for s in report.repair_strategies])}
-
-## 风险等级
-{report.risk_level}
-
-## 准入结论
-{report.policy_result}
-
-## 下一步动作
-{chr(10).join([f"- {s}" for s in report.next_steps])}
-"""
-    
-    if report.traceback_excerpt:
-        md += f"""
-## Traceback摘要
-```
-{report.traceback_excerpt}
-```
-"""
-    
-    return md
-
-def render_diagnostic_report_blocks(report: DiagnosticReportData) -> list[dict]:
-    """渲染诊断报告为飞书文档块格式"""
-    blocks = [
-        {"type": "heading1", "heading1": {"elements": [{"type": "text", "text_run": {"content": "故障诊断报告"}}]}},
-        {"type": "heading2", "heading2": {"elements": [{"type": "text", "text_run": {"content": "基本信息"}}]}},
-        {"type": "paragraph", "paragraph": {"elements": [
-            {"type": "text", "text_run": {"content": f"报告ID：{report.report_id}\n事件ID：{report.incident_id}\n服务名称：{report.service_name}\n生成时间：{report.created_at}"}}
-        ]}},
-        {"type": "heading2", "heading2": {"elements": [{"type": "text", "text_run": {"content": "Issue信息"}}]}},
-        {"type": "paragraph", "paragraph": {"elements": [
-            {"type": "text", "text_run": {"content": f"Issue编号：#{report.issue_number}\nIssue链接："}},
-            {"type": "text", "text_run": {"content": report.issue_url, "link": {"url": report.issue_url}}}
-        ]}},
-        {"type": "heading2", "heading2": {"elements": [{"type": "text", "text_run": {"content": "错误摘要"}}]}},
-        {"type": "paragraph", "paragraph": {"elements": [{"type": "text", "text_run": {"content": report.error_brief}}]}},
-        {"type": "heading2", "heading2": {"elements": [{"type": "text", "text_run": {"content": "根因判断"}}]}},
-        {"type": "paragraph", "paragraph": {"elements": [{"type": "text", "text_run": {"content": report.root_cause}}]}},
-        {"type": "heading2", "heading2": {"elements": [{"type": "text", "text_run": {"content": "修复策略"}}]}},
+def render_diagnostic_report_plaintext(report: DiagnosticReportData) -> str:
+    lines = [
+        "=" * 50,
+        "FeishuAutoRepair 故障诊断报告",
+        "=" * 50,
+        "",
+        f"报告ID: {report.report_id}",
+        f"事件ID: {report.incident_id}",
+        f"服务名称: {report.service_name}",
+        f"生成时间: {report.created_at}",
+        "",
+        "-" * 50,
+        "Issue 信息",
+        "-" * 50,
+        f"Issue编号: #{report.issue_number}",
+        f"Issue链接: {report.issue_url}",
+        "",
+        "-" * 50,
+        "错误摘要",
+        "-" * 50,
+        report.error_brief,
+        "",
+        "-" * 50,
+        "证据摘要",
+        "-" * 50,
+        report.evidence_summary,
+        "",
+        "-" * 50,
+        "合理性检查",
+        "-" * 50,
+        report.validation_result,
+        "",
+        "-" * 50,
+        "根因判断",
+        "-" * 50,
+        report.root_cause,
+        "",
+        "-" * 50,
+        "修复策略",
+        "-" * 50,
     ]
-    
-    for strategy in report.repair_strategies:
-        blocks.append({
-            "type": "paragraph", 
-            "paragraph": {"elements": [{"type": "text", "text_run": {"content": f"- {strategy}"}}]}
-        })
-    
+    for i, s in enumerate(report.repair_strategies, 1):
+        lines.append(f"{i}. {s}")
+
+    lines += [
+        "",
+        "-" * 50,
+        "风险等级与准入结论",
+        "-" * 50,
+        f"风险等级: {report.risk_level}",
+        f"准入结论: {report.policy_result}",
+        "",
+        "-" * 50,
+        "下一步动作",
+        "-" * 50,
+    ]
+    for i, s in enumerate(report.next_steps, 1):
+        lines.append(f"{i}. {s}")
+
     if report.traceback_excerpt:
-        blocks.extend([
-            {"type": "heading2", "heading2": {"elements": [{"type": "text", "text_run": {"content": "Traceback摘要"}}]}},
-            {"type": "code_block", "code_block": {"language": "python", "elements": [{"type": "text", "text_run": {"content": report.traceback_excerpt}}]}}
-        ])
-    
-    return blocks
+        lines += [
+            "",
+            "-" * 50,
+            "Traceback 摘要 (已脱敏截断)",
+            "-" * 50,
+            _sanitize_traceback(report.traceback_excerpt),
+        ]
+
+    lines += [
+        "",
+        "=" * 50,
+        "注意: 本报告包含脱敏后的诊断信息，不包含敏感凭据。",
+        "=" * 50,
+    ]
+    return "\n".join(lines)

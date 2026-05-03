@@ -4,12 +4,16 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+from contextlib import asynccontextmanager
 import uvicorn
 from pathlib import Path
 import sys
 import os
 import asyncio
+import logging
 from collections import deque
+
+logger = logging.getLogger(__name__)
 
 # 导入现有统计模块
 from autorepair.dashboard.stats import (
@@ -38,8 +42,22 @@ from autorepair.repair.job_store import DEFAULT_REPAIR_JOBS_PATH
 from autorepair.repair.git_workspace import build_repair_branch
 from autorepair.repair.schemas import RepairJobStatus
 from autorepair.config import config, LOG_PATH, GITHUB_OWNER, GITHUB_REPO
+from autorepair.dashboard.watchdog import start_watchdog, stop_watchdog, get_watchdog_status
 
-app = FastAPI(title="FeishuAutoRepair Dashboard", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app_instance):
+    try:
+        start_watchdog()
+        logger.info("watchdog 已随 Dashboard 启动")
+    except Exception as e:
+        logger.error(f"watchdog 启动失败: {e}", exc_info=True)
+    yield
+    try:
+        stop_watchdog()
+    except Exception as e:
+        logger.error(f"watchdog 停止失败: {e}", exc_info=True)
+
+app = FastAPI(title="FeishuAutoRepair Dashboard", version="1.0.0", lifespan=lifespan)
 
 # 事件系统：用于实时更新
 EVENT_QUEUE = deque(maxlen=100)
@@ -192,7 +210,7 @@ async def api_trigger_scan_logs():
                     f"[updated] {incident.incident_id} occurrence_count={incident.occurrence_count}"
                 )
         
-        return TriggerResponse(
+        response = TriggerResponse(
             success=True,
             message=f"日志扫描完成：创建{created_count}个Incident，更新{updated_count}个，创建{issue_created_count}个Issue，发送{feishu_sent_count}个飞书卡片",
             data={
@@ -204,6 +222,13 @@ async def api_trigger_scan_logs():
                 "details": details
             }
         )
+        push_event("logs_scanned", {
+            "incidents_created": created_count,
+            "incidents_updated": updated_count,
+            "issues_created": issue_created_count,
+            "cards_sent": feishu_sent_count,
+        })
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"日志扫描失败: {str(e)}")
 
@@ -326,6 +351,11 @@ async def api_trigger_run_repair():
         result = execute_next_repair_job()
         
         if result.error:
+            push_event("repair_executed", {
+                "job_id": result.job.job_id if result.job else None,
+                "success": False,
+                "error": result.error,
+            })
             return TriggerResponse(
                 success=True,
                 message=result.error,
@@ -333,6 +363,12 @@ async def api_trigger_run_repair():
             )
         
         if result.job:
+            push_event("repair_executed", {
+                "job_id": result.job.job_id,
+                "status": result.job.status.value,
+                "pr_url": result.job.pr_url,
+                "success": True,
+            })
             return TriggerResponse(
                 success=True,
                 message=f"修复任务完成: {result.job.job_id}",
@@ -344,13 +380,12 @@ async def api_trigger_run_repair():
                 }
             )
         
-        response = TriggerResponse(
+        push_event("repair_executed", {"success": True, "message": "没有待执行的修复任务"})
+        return TriggerResponse(
             success=True,
             message="没有待执行的修复任务",
             data={"jobs_created": 0}
         )
-        push_event("repair_executed", {"job_id": result.job.job_id if result.job else None, "success": True})
-        return response
     except Exception as e:
         push_event("repair_executed", {"success": False, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"修复任务执行失败: {str(e)}")
@@ -423,6 +458,10 @@ async def api_trigger_sync_prs():
                 update_repair_job(job.job_id, path=DEFAULT_REPAIR_JOBS_PATH, status=RepairJobStatus.human_required, last_error="PR closed without merge")
                 closed_count += 1
 
+        push_event("prs_synced", {
+            "merged": merged_count,
+            "closed_without_merge": closed_count,
+        })
         return TriggerResponse(
             success=True,
             message=f"PR状态同步完成：合并{merged_count}个，关闭{closed_count}个",
@@ -432,6 +471,7 @@ async def api_trigger_sync_prs():
             }
         )
     except Exception as e:
+        push_event("prs_synced", {"success": False, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"PR状态同步失败: {str(e)}")
 
 @app.post("/api/trigger/send_digest", response_model=TriggerResponse)
@@ -486,8 +526,8 @@ async def api_trigger_full_pipeline():
 
             # Step 3: 生成诊断报告
             from autorepair.reports.diagnostic_report_builder import build_diagnostic_report
-            from autorepair.adapters.feishu_docx import FeishuDocxClient
-            feishu_doc_client = FeishuDocxClient()
+            from autorepair.adapters.note_report import NoteReportClient
+            note_client = NoteReportClient()
 
             triage_result = type('MockTriageResult', (), {
                 'root_cause': f'{incident.error_summary.error_type}: {incident.error_summary.message}',
@@ -506,7 +546,7 @@ async def api_trigger_full_pipeline():
                 triage_result=triage_result,
                 policy_result="allowed"
             )
-            doc_ref = feishu_doc_client.create_diagnostic_report(report)
+            doc_ref = note_client.create_diagnostic_report(report)
 
             push_event("diagnostic_report_created", {
                 "incident_id": incident.incident_id,
@@ -594,6 +634,27 @@ async def api_trigger_full_pipeline():
     except Exception as e:
         push_event("pipeline_failed", {"message": f"全流程执行失败: {str(e)}"})
         raise HTTPException(status_code=500, detail=f"全流程执行失败: {str(e)}")
+
+
+@app.get("/api/watchdog/status")
+async def api_watchdog_status():
+    return get_watchdog_status()
+
+@app.post("/api/watchdog/start", response_model=TriggerResponse)
+async def api_watchdog_start():
+    try:
+        start_watchdog()
+        return TriggerResponse(success=True, message="文件监控已启动")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"启动监控失败: {str(e)}")
+
+@app.post("/api/watchdog/stop", response_model=TriggerResponse)
+async def api_watchdog_stop():
+    try:
+        stop_watchdog()
+        return TriggerResponse(success=True, message="文件监控已停止")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"停止监控失败: {str(e)}")
 
 
 @app.get("/api/events/long-poll")
