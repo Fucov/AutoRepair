@@ -13,6 +13,7 @@ from autorepair.adapters.github import (
 )
 from autorepair.adapters.feishu import send_manual_intervention_card, send_fix_pr_ready_card
 from autorepair.audit_store import append_audit_event
+from autorepair.dashboard.api import push_event
 from autorepair.incident_store import get_incident_by_id
 from autorepair.repair.context_collector import collect_repair_context
 from autorepair.repair.git_workspace import (
@@ -76,7 +77,14 @@ def execute_next_repair_job() -> RepairExecutionResult:
         try:
             update_repair_job(job.job_id, status=RepairJobStatus.running)
             replace_autorepair_status_label(job.issue_number, "autorepair:repairing")
-            
+
+            push_event("repair_started", {
+                "job_id": job.job_id,
+                "incident_id": job.incident_id,
+                "issue_number": job.issue_number,
+                "message": f"修复任务 {job.job_id} 开始执行"
+            })
+
             incident = get_incident_by_id(job.incident_id)
             if not incident:
                 raise ValueError(f"Incident {job.incident_id} not found")
@@ -87,6 +95,13 @@ def execute_next_repair_job() -> RepairExecutionResult:
                 job.incident_id,
                 {"job_id": job.job_id, "snippets": list(context.code_snippets.keys())}
             )
+
+            push_event("repair_context_collected", {
+                "job_id": job.job_id,
+                "incident_id": job.incident_id,
+                "snippets": list(context.code_snippets.keys()),
+                "message": "修复上下文收集完成"
+            })
 
             ark_client = ArkClient()
             messages = build_patch_prompt(context)
@@ -110,7 +125,17 @@ def execute_next_repair_job() -> RepairExecutionResult:
                             "confidence": patch_plan.confidence
                         }
                     )
-                    
+
+                    push_event("patch_plan_generated", {
+                        "job_id": job.job_id,
+                        "incident_id": job.incident_id,
+                        "attempt": attempt + 1,
+                        "summary": patch_plan.summary,
+                        "files": [f.path for f in patch_plan.files],
+                        "confidence": patch_plan.confidence,
+                        "message": f"补丁方案生成完成（第{attempt + 1}次尝试）"
+                    })
+
                     apply_result = apply_patch_plan(patch_plan, job.worktree_path)
                     if not apply_result.ok:
                         raise ValueError(f"Patch apply failed: {apply_result.error}")
@@ -120,7 +145,14 @@ def execute_next_repair_job() -> RepairExecutionResult:
                         job.incident_id,
                         {"job_id": job.job_id, "changed_files": apply_result.changed_files}
                     )
-                    
+
+                    push_event("patch_applied", {
+                        "job_id": job.job_id,
+                        "incident_id": job.incident_id,
+                        "changed_files": apply_result.changed_files,
+                        "message": "补丁已应用到代码"
+                    })
+
                     test_result = run_command_in_worktree(context.target_test_command, job.worktree_path)
                     if test_result.returncode == 0:
                         break
@@ -157,14 +189,28 @@ Test: {context.target_test_command}
                 job.incident_id,
                 {"job_id": job.job_id, "commit_sha": commit_sha}
             )
-            
+
+            push_event("code_committed", {
+                "job_id": job.job_id,
+                "incident_id": job.incident_id,
+                "commit_sha": commit_sha,
+                "message": "代码已提交到修复分支"
+            })
+
             git_push_branch(job.worktree_path, job.repair_branch)
             append_audit_event(
                 "branch_pushed",
                 job.incident_id,
                 {"job_id": job.job_id, "branch": job.repair_branch}
             )
-            
+
+            push_event("branch_pushed", {
+                "job_id": job.job_id,
+                "incident_id": job.incident_id,
+                "branch": job.repair_branch,
+                "message": "修复分支已推送到远程"
+            })
+
             pr_title = "[AutoRepair] Fix timezone-aware SLA deadline comparison"
             pr_body = f"""## AutoRepair Fix
 Incident ID: {job.incident_id}
@@ -201,7 +247,16 @@ Timezone-aware datetime object compared with naive datetime object in SLA deadli
                 pr_url=pr.html_url,
                 last_error=None
             )
-            
+
+            push_event("pr_created", {
+                "job_id": job.job_id,
+                "incident_id": job.incident_id,
+                "issue_number": job.issue_number,
+                "pr_number": pr.number,
+                "pr_url": pr.html_url,
+                "message": f"PR #{pr.number} 创建成功"
+            })
+
             replace_autorepair_status_label(job.issue_number, "autorepair:pr-ready")
             add_labels(job.issue_number, [f"risk:{patch_plan.risk_level if patch_plan else 'low'}"])
             
@@ -219,7 +274,14 @@ Timezone-aware datetime object compared with naive datetime object in SLA deadli
                 fix_summary=patch_plan.summary if patch_plan else '修复时区比较问题',
                 risk_level=patch_plan.risk_level if patch_plan else 'low'
             )
-            
+
+            push_event("card_sent", {
+                "job_id": job.job_id,
+                "incident_id": job.incident_id,
+                "card_type": "fix_pr_ready",
+                "message": "PR修复完成卡片已发送到飞书"
+            })
+
             append_audit_event(
                 "pr_created",
                 job.incident_id,
@@ -229,7 +291,16 @@ Timezone-aware datetime object compared with naive datetime object in SLA deadli
                     "pr_url": pr.html_url
                 }
             )
-            
+
+            push_event("repair_completed", {
+                "job_id": job.job_id,
+                "incident_id": job.incident_id,
+                "issue_number": job.issue_number,
+                "pr_number": pr.number,
+                "pr_url": pr.html_url,
+                "message": f"修复完成！PR #{pr.number} 已创建"
+            })
+
             return RepairExecutionResult(success=True, job=job)
             
         except Exception as e:
@@ -239,7 +310,15 @@ Timezone-aware datetime object compared with naive datetime object in SLA deadli
                 status=RepairJobStatus.test_failed if "test" in error_msg.lower() else RepairJobStatus.failed,
                 last_error=error_msg
             )
-            
+
+            push_event("repair_failed", {
+                "job_id": job.job_id,
+                "incident_id": job.incident_id,
+                "issue_number": job.issue_number,
+                "error": error_msg,
+                "message": f"修复失败: {error_msg[:100]}"
+            })
+
             replace_autorepair_status_label(job.issue_number, "autorepair:human-required")
             
             comment_body = f"""❌ AutoRepair 修复失败，需要人工介入：

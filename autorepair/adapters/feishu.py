@@ -378,11 +378,10 @@ def send_repair_plan_ready(
         build_repair_plan_ready_variables(
             incident_id=incident_id,
             service_name=service_name,
-            diagnosis_brief=diagnosis_brief,
+            root_cause=diagnosis_brief,
             fix_strategy=fix_strategy,
             risk_level=risk_level,
-            policy_result=policy_result,
-            report_url=report_url,
+            policy_summary=policy_result,
         ),
     )
 
@@ -403,11 +402,9 @@ def send_manual_intervention(
         build_manual_intervention_variables(
             incident_id=incident_id,
             service_name=service_name,
-            reason_brief=reason_brief,
-            evidence_brief=evidence_brief,
-            suggested_action=suggested_action,
-            issue_url=issue_url,
-            report_url=report_url,
+            human_reason=reason_brief,
+            evidence_summary=evidence_brief,
+            next_action=suggested_action,
         ),
     )
 

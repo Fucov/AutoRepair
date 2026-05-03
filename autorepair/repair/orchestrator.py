@@ -82,6 +82,14 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
 
     validation = validate_bug_issue(issue)
     service = get_default_service()
+
+    push_event("issue_validated", {
+        "issue_number": issue.number,
+        "is_valid": validation.is_valid,
+        "reason": validation.reason,
+        "evidence_level": validation.evidence_level,
+        "message": f"Issue合理性检查: {'通过' if validation.is_valid else '未通过'} - {validation.reason[:60]}"
+    })
     
     # 创建或查找关联的Incident
     incident = create_incident_from_issue(issue, service)
@@ -151,6 +159,16 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
 
     decision = _dry_run_decision(issue.number, issue.title, issue.body)
     allowed, reason = should_auto_fix(decision)
+
+    push_event("triage_decision", {
+        "incident_id": incident_id,
+        "issue_number": issue.number,
+        "decision": decision.decision.value,
+        "confidence": decision.confidence.value,
+        "allowed": allowed,
+        "reason": reason,
+        "message": f"分诊决策: {'允许自动修复' if allowed else '需人工介入'} - {reason}"
+    })
     
     # 生成诊断报告
     report = build_diagnostic_report(

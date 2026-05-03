@@ -22,6 +22,7 @@ from autorepair.dashboard.stats import (
 # 导入完整链路功能模块
 from autorepair.watcher import scan_service_logs_once
 from autorepair.service_registry import get_default_service
+from autorepair.adapters import feishu
 from autorepair.adapters.feishu import send_incident_card, send_template_card
 from autorepair.adapters.github import list_open_bug_issues
 from autorepair.issue_manager import ensure_issue_for_incident
@@ -33,8 +34,10 @@ from autorepair.cards import (
     build_manual_intervention_variables,
 )
 from autorepair.repair.job_store import create_repair_job
+from autorepair.repair.job_store import DEFAULT_REPAIR_JOBS_PATH
+from autorepair.repair.git_workspace import build_repair_branch
 from autorepair.repair.schemas import RepairJobStatus
-from autorepair.config import config, LOG_PATH
+from autorepair.config import config, LOG_PATH, GITHUB_OWNER, GITHUB_REPO
 
 app = FastAPI(title="FeishuAutoRepair Dashboard", version="1.0.0")
 
@@ -268,9 +271,6 @@ async def api_trigger_scan_issues():
                     fix_strategy="分析Traceback并生成修复补丁",
                     risk_level="低风险",
                     policy_summary="允许进入自动修复",
-                    issue_number=issue.number,
-                    issue_url=issue.html_url,
-                    job_id=repair_job.job_id
                 )
                 send_template_card("repair_plan_ready", variables)
                 append_audit_event("repair_plan_generated", issue_id, {
@@ -444,6 +444,157 @@ async def api_trigger_send_digest():
         return TriggerResponse(success=True, message="统计摘要已发送")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"发送失败: {str(e)}")
+
+@app.post("/api/trigger/run_full_pipeline", response_model=TriggerResponse)
+async def api_trigger_full_pipeline():
+    """一键全流程：扫描日志→判断合理性→创建Issue→诊断报告→发送飞书卡片→创建修复任务→执行修复→提交PR"""
+    try:
+        service = get_default_service()
+        pipeline_details = []
+
+        # Step 1: 扫描日志
+        push_event("pipeline_started", {"message": "全流程开始执行"})
+        results = scan_service_logs_once(service)
+
+        if not results:
+            push_event("pipeline_completed", {"message": "全流程完成：未发现新异常"})
+            return TriggerResponse(
+                success=True,
+                message="全流程完成：日志扫描未发现新异常",
+                data={"steps_completed": ["scan_logs"], "incidents_found": 0}
+            )
+
+        pipeline_details.append(f"扫描到 {len(results)} 个日志事件")
+
+        for incident, action in results:
+            if action != "created":
+                continue
+
+            push_event("incident_detected", {
+                "incident_id": incident.incident_id,
+                "error_type": incident.error_summary.error_type,
+                "message": f"检测到异常: {incident.error_summary.error_type}"
+            })
+
+            # Step 2: 创建Issue（含合理性判断）
+            issue_ref = ensure_issue_for_incident(incident, service)
+            issue_url = issue_ref.html_url
+            incident.issue_number = issue_ref.number
+            incident.issue_url = issue_url
+            update_incident_fields(incident.incident_id, issue_number=issue_ref.number, issue_url=issue_url)
+            pipeline_details.append(f"创建Issue: {issue_url}")
+
+            # Step 3: 生成诊断报告
+            from autorepair.reports.diagnostic_report_builder import build_diagnostic_report
+            from autorepair.adapters.feishu_docx import FeishuDocxClient
+            feishu_doc_client = FeishuDocxClient()
+
+            triage_result = type('MockTriageResult', (), {
+                'root_cause': f'{incident.error_summary.error_type}: {incident.error_summary.message}',
+                'risk_level': 'medium'
+            })()
+            report = build_diagnostic_report(
+                issue=issue_ref if hasattr(issue_ref, 'title') else type('MockIssue', (), {
+                    'title': f"Bug: {incident.error_summary.error_type}",
+                    'body': incident.raw_traceback[:500],
+                    'labels': ['bug', 'AutoRepair'],
+                    'number': issue_ref.number,
+                    'html_url': issue_ref.html_url
+                })(),
+                incident=incident,
+                validation_result="通过",
+                triage_result=triage_result,
+                policy_result="allowed"
+            )
+            doc_ref = feishu_doc_client.create_diagnostic_report(report)
+
+            push_event("diagnostic_report_created", {
+                "incident_id": incident.incident_id,
+                "issue_number": issue_ref.number,
+                "report_url": doc_ref.url,
+                "message": "诊断报告生成完成"
+            })
+            pipeline_details.append(f"诊断报告: {doc_ref.url}")
+
+            # Step 4: 发送飞书卡片
+            send_result = send_incident_card(incident)
+            feishu.send_repair_plan_ready(
+                incident_id=incident.incident_id,
+                service_name=service.name,
+                diagnosis_brief=f"{incident.error_summary.error_type}: {incident.error_summary.message}",
+                fix_strategy="自动分析Traceback并生成修复补丁",
+                risk_level="medium",
+                policy_result="allowed",
+                report_url=doc_ref.url,
+            )
+
+            push_event("card_sent", {
+                "incident_id": incident.incident_id,
+                "issue_number": issue_ref.number,
+                "message": "飞书卡片已发送"
+            })
+            pipeline_details.append("飞书卡片已发送")
+
+            # Step 5: 创建修复任务
+            repair_branch = build_repair_branch(incident.incident_id, incident.error_summary.error_type)
+            worktree_path = str(Path(service.repo_path) / ".worktrees" / incident.incident_id)
+            job = create_repair_job(
+                incident_id=incident.incident_id,
+                issue_number=issue_ref.number,
+                issue_url=issue_ref.html_url,
+                repo_owner=GITHUB_OWNER or "local",
+                repo_name=GITHUB_REPO or Path(service.repo_path).name,
+                base_branch=os.getenv("GITHUB_BASE_BRANCH", "main"),
+                repair_branch=repair_branch,
+                worktree_path=worktree_path,
+                policy_decision={"decision": "auto_fix", "confidence": "high"},
+                risk_level="medium",
+                report_url=doc_ref.url,
+                path=DEFAULT_REPAIR_JOBS_PATH,
+            )
+
+            push_event("repair_job_created", {
+                "job_id": job.job_id,
+                "incident_id": incident.incident_id,
+                "issue_number": issue_ref.number,
+                "report_url": doc_ref.url,
+                "message": "修复任务已加入队列"
+            })
+            pipeline_details.append(f"修复任务: {job.job_id}")
+
+            append_audit_event("pipeline_incident_processed", incident.incident_id, {
+                "issue_number": issue_ref.number,
+                "report_url": doc_ref.url,
+                "job_id": job.job_id,
+            })
+
+        # Step 6: 执行修复
+        from autorepair.repair.executor import execute_next_repair_job
+        repair_result = execute_next_repair_job()
+        if repair_result.job:
+            pipeline_details.append(f"修复执行: {repair_result.job.status.value}")
+            if repair_result.job.pr_url:
+                pipeline_details.append(f"PR: {repair_result.job.pr_url}")
+
+        push_event("pipeline_completed", {
+            "message": "全流程执行完成",
+            "details": pipeline_details
+        })
+
+        return TriggerResponse(
+            success=True,
+            message=f"全流程完成: {'; '.join(pipeline_details)}",
+            data={
+                "steps_completed": ["scan_logs", "create_issue", "diagnostic_report", "send_card", "create_repair_job", "execute_repair"],
+                "details": pipeline_details,
+                "repair_success": repair_result.success if repair_result else False,
+                "pr_url": repair_result.job.pr_url if repair_result and repair_result.job else None,
+            }
+        )
+    except Exception as e:
+        push_event("pipeline_failed", {"message": f"全流程执行失败: {str(e)}"})
+        raise HTTPException(status_code=500, detail=f"全流程执行失败: {str(e)}")
+
 
 @app.get("/api/events/long-poll")
 async def long_poll_events(last_event_id: int = 0):

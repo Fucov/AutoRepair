@@ -53,20 +53,23 @@
 
         <!-- 图表区域 -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow p-3">
-                <h3 class="text-base font-semibold mb-2">24小时Incident趋势</h3>
-                <canvas id="trend-chart" height="120"></canvas>
+            <div class="bg-white rounded-lg shadow p-3" style="height: 200px;">
+                <h3 class="text-sm font-semibold mb-1">24小时Incident趋势</h3>
+                <div style="height: 160px;"><canvas id="trend-chart"></canvas></div>
             </div>
-            <div class="bg-white rounded-lg shadow p-3">
-                <h3 class="text-base font-semibold mb-2">错误类型分布</h3>
-                <canvas id="error-type-chart" height="120"></canvas>
+            <div class="bg-white rounded-lg shadow p-3" style="height: 200px;">
+                <h3 class="text-sm font-semibold mb-1">错误类型分布</h3>
+                <div style="height: 160px;"><canvas id="error-type-chart"></canvas></div>
             </div>
         </div>
 
         <!-- 操作中心 -->
         <div class="bg-white rounded-lg shadow p-6 mb-8">
             <h3 class="text-lg font-semibold mb-4">🛠️ 操作中心</h3>
-            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <button onclick="triggerAction('run_full_pipeline')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-3 rounded-lg font-bold shadow-lg">
+                    🚀 一键全流程
+                </button>
                 <button onclick="triggerAction('scan_logs')" class="bg-green-500 hover:bg-green-600 text-white px-4 py-3 rounded-lg">
                     扫描日志
                 </button>
@@ -212,12 +215,19 @@
                         borderColor: 'rgb(59, 130, 246)',
                         backgroundColor: 'rgba(59, 130, 246, 0.1)',
                         tension: 0.4,
-                        fill: true
+                        fill: true,
+                        pointRadius: 2,
+                        borderWidth: 2
                     }]
                 },
                 options: {
                     responsive: true,
-                    plugins: { legend: { display: false } }
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { font: { size: 10 } } },
+                        y: { ticks: { font: { size: 10 }, stepSize: 1 }, beginAtZero: true }
+                    }
                 }
             });
         }
@@ -250,7 +260,8 @@
                 },
                 options: {
                     responsive: true,
-                    plugins: { legend: { position: 'right' } }
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right', labels: { font: { size: 10 }, boxWidth: 12 } } }
                 }
             });
         }
@@ -376,12 +387,23 @@
         
         // 事件类型对应的显示样式和图标
         const eventTypeConfig = {
+            'pipeline_started': { icon: '🚀', class: 'text-red-600', message: '全流程开始执行' },
+            'pipeline_completed': { icon: '🏁', class: 'text-green-600', message: '全流程执行完成' },
+            'pipeline_failed': { icon: '💥', class: 'text-red-600', message: '全流程执行失败' },
             'incident_detected': { icon: '🚨', class: 'text-red-600', message: '检测到新故障' },
+            'issue_validated': { icon: '🔍', class: 'text-cyan-600', message: 'Issue合理性检查' },
             'issue_created': { icon: '📝', class: 'text-blue-600', message: 'GitHub Issue已创建' },
+            'triage_decision': { icon: '🧠', class: 'text-purple-600', message: '分诊决策完成' },
             'diagnostic_report_created': { icon: '📊', class: 'text-purple-600', message: '诊断报告生成完成' },
             'repair_job_created': { icon: '📋', class: 'text-yellow-600', message: '修复任务已创建' },
             'repair_started': { icon: '🔧', class: 'text-orange-600', message: '开始执行修复' },
+            'repair_context_collected': { icon: '📦', class: 'text-teal-600', message: '修复上下文收集完成' },
+            'patch_plan_generated': { icon: '🧩', class: 'text-indigo-600', message: '补丁方案生成完成' },
+            'patch_applied': { icon: '📎', class: 'text-blue-500', message: '补丁已应用到代码' },
+            'code_committed': { icon: '💾', class: 'text-green-600', message: '代码已提交' },
+            'branch_pushed': { icon: '📤', class: 'text-indigo-500', message: '修复分支已推送' },
             'repair_completed': { icon: '✅', class: 'text-green-600', message: '修复完成' },
+            'repair_failed': { icon: '❌', class: 'text-red-600', message: '修复失败' },
             'pr_created': { icon: '🔀', class: 'text-indigo-600', message: 'Pull Request已创建' },
             'card_sent': { icon: '💌', class: 'text-pink-600', message: '飞书通知已发送' },
             'error': { icon: '❌', class: 'text-red-600', message: '处理出错' }
