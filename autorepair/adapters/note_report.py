@@ -1,19 +1,13 @@
-import uuid
-import time
 import logging
-from typing import Optional
 from dataclasses import dataclass
 
 import httpx
 
-from ..config import config, PROJECT_ROOT
+from ..config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
-NOTE_MS_BASE = "https://note.ms"
-_WRITE_API = "https://notems.dreamqjlight.us.kg/write"
-_READ_API = "https://notems.dreamqjlight.us.kg/read"
-_MIN_INTERVAL = 3.5
+_PASTE_RS_API = "https://paste.rs/"
 
 
 @dataclass
@@ -25,69 +19,72 @@ class NoteReportRef:
 
 
 class NoteReportClient:
-    def __init__(self):
-        self._last_request_at: float = 0
-
-    def _throttle(self):
-        elapsed = time.time() - self._last_request_at
-        if elapsed < _MIN_INTERVAL:
-            time.sleep(_MIN_INTERVAL - elapsed)
-        self._last_request_at = time.time()
-
-    def _generate_page_name(self) -> str:
-        return f"ar-{uuid.uuid4().hex}"
-
     def create_report(self, title: str, content: str) -> NoteReportRef:
-        page_name = self._generate_page_name()
-        self._write_page(page_name, content)
-        url = f"{NOTE_MS_BASE}/{page_name}"
-        logger.info(f"诊断报告已发布: {url}")
-        return NoteReportRef(
-            document_id=page_name,
-            document_token=page_name,
-            url=url,
-            title=title,
-        )
+        ref = self._upload_to_paste_rs(content)
+        if ref:
+            ref.title = title
+            logger.info(f"诊断报告已发布: {ref.url}")
+            return ref
 
-    def _write_page(self, page_name: str, text: str) -> None:
-        self._throttle()
+        return self._local_fallback(title, content)
+
+    def _upload_to_paste_rs(self, text: str) -> NoteReportRef | None:
         try:
             resp = httpx.post(
-                _WRITE_API,
-                data={"page": page_name, "text": text},
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                _PASTE_RS_API,
+                content=text.encode("utf-8"),
+                headers={"Content-Type": "text/plain; charset=utf-8"},
                 timeout=30,
             )
-            if resp.status_code == 429:
-                logger.warning("note.ms 速率限制，等待后重试")
-                time.sleep(5)
-                resp = httpx.post(
-                    _WRITE_API,
-                    data={"page": page_name, "text": text},
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    timeout=30,
+            if resp.status_code == 201:
+                url = resp.text.strip()
+                paste_id = url.rstrip("/").split("/")[-1]
+                return NoteReportRef(
+                    document_id=paste_id,
+                    document_token=paste_id,
+                    url=url,
+                    title="",
                 )
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("status") != "success":
-                logger.error(f"note.ms 写入失败: {data}")
+            if resp.status_code == 206:
+                logger.warning("paste.rs 部分上传（内容过大），降级为本地文件")
+                return None
+            logger.error(f"paste.rs 写入失败: status={resp.status_code} body={resp.text}")
         except Exception as e:
-            logger.error(f"note.ms 写入异常: {e}", exc_info=True)
+            logger.error(f"paste.rs 写入异常: {e}", exc_info=True)
+        return None
+
+    def _verify(self, url: str) -> bool:
+        try:
+            resp = httpx.get(url, timeout=15)
+            return resp.status_code == 200 and len(resp.text) > 0
+        except Exception as e:
+            logger.warning(f"paste.rs 校验异常: {e}")
+            return False
 
     def create_diagnostic_report(self, report) -> NoteReportRef:
         from ..reports.diagnostic_report_builder import render_diagnostic_report_plaintext
 
         title = f"故障诊断报告 - {report.incident_id} - {report.service_name}"
         content = render_diagnostic_report_plaintext(report)
-        return self.create_report(title, content)
 
-    def create_local_fallback(self, title: str, content: str) -> NoteReportRef:
+        ref = self.create_report(title, content)
+        if ref.document_id.startswith("local://"):
+            return ref
+
+        if self._verify(ref.url):
+            logger.info(f"paste.rs 报告校验通过: {ref.url}")
+            return ref
+
+        logger.warning("paste.rs 报告校验失败，降级为本地文件")
+        return self._local_fallback(title, content)
+
+    def _local_fallback(self, title: str, content: str) -> NoteReportRef:
         report_dir = PROJECT_ROOT / "autorepair" / "records" / "reports"
         report_dir.mkdir(parents=True, exist_ok=True)
         safe_title = title.replace("/", "_").replace("\\", "_").replace(":", "_")
         report_path = report_dir / f"{safe_title}.txt"
         report_path.write_text(content, encoding="utf-8")
-        logger.warning(f"note.ms 不可用，降级为本地报告: {report_path}")
+        logger.warning(f"报告已降级保存到本地: {report_path}")
         return NoteReportRef(
             document_id=f"local://{report_path.absolute()}",
             document_token=report_path.name,

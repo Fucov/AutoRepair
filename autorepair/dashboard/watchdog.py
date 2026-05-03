@@ -112,29 +112,61 @@ def _run_pipeline_on_new_incidents():
             "message": f"检测到异常: {incident.error_summary.error_type}"
         })
 
+        issue_ref = None
+        doc_ref = None
+
         try:
             issue_ref = ensure_issue_for_incident(incident, service)
-            issue_url = issue_ref.html_url
             incident.issue_number = issue_ref.number
-            incident.issue_url = issue_url
-            update_incident_fields(incident.incident_id, issue_number=issue_ref.number, issue_url=issue_url)
+            incident.issue_url = issue_ref.html_url
+            update_incident_fields(incident.incident_id, issue_number=issue_ref.number, issue_url=issue_ref.html_url)
 
             push_event("issue_created", {
                 "incident_id": incident.incident_id,
                 "issue_number": issue_ref.number,
-                "issue_url": issue_url,
+                "issue_url": issue_ref.html_url,
                 "message": f"Issue已创建: #{issue_ref.number}"
             })
         except Exception as e:
             logger.error(f"创建Issue失败: {e}", exc_info=True)
-            push_event("error", {
-                "incident_id": incident.incident_id,
-                "stage": "create_issue",
-                "message": f"创建Issue失败: {e}"
-            })
+            push_event("error", {"incident_id": incident.incident_id, "stage": "create_issue", "message": f"创建Issue失败: {e}"})
             continue
 
         try:
+            from autorepair.reports.diagnostic_report_builder import build_diagnostic_report
+            from autorepair.adapters.note_report import NoteReportClient
+
+            note_client = NoteReportClient()
+            triage_result = type('Triage', (), {
+                'root_cause': f'{incident.error_summary.error_type}: {incident.error_summary.message}',
+                'risk_level': 'medium'
+            })()
+            mock_issue = type('Issue', (), {
+                'title': f"Bug: {incident.error_summary.error_type}",
+                'body': incident.raw_traceback[:500] if incident.raw_traceback else "",
+                'labels': ['bug', 'AutoRepair'],
+                'number': issue_ref.number,
+                'html_url': issue_ref.html_url,
+            })()
+            report = build_diagnostic_report(
+                issue=mock_issue,
+                incident=incident,
+                validation_result="通过",
+                triage_result=triage_result,
+                policy_result="allowed",
+            )
+            doc_ref = note_client.create_diagnostic_report(report)
+            push_event("diagnostic_report_created", {
+                "incident_id": incident.incident_id,
+                "issue_number": issue_ref.number,
+                "report_url": doc_ref.url,
+                "message": "诊断报告生成完成",
+            })
+        except Exception as e:
+            logger.error(f"生成诊断报告失败: {e}", exc_info=True)
+
+        try:
+            report_url = doc_ref.url if doc_ref else ""
             send_incident_card(incident)
             send_repair_plan_ready(
                 incident_id=incident.incident_id,
@@ -143,20 +175,17 @@ def _run_pipeline_on_new_incidents():
                 fix_strategy="自动分析Traceback并生成修复补丁",
                 risk_level="medium",
                 policy_result="allowed",
-                report_url="",
+                report_url=report_url,
             )
             push_event("card_sent", {
                 "incident_id": incident.incident_id,
                 "issue_number": issue_ref.number,
+                "report_url": report_url,
                 "message": "飞书卡片已发送",
             })
         except Exception as e:
             logger.error(f"发送飞书卡片失败: {e}", exc_info=True)
-            push_event("error", {
-                "incident_id": incident.incident_id,
-                "stage": "send_card",
-                "message": f"飞书通知失败: {e}",
-            })
+            push_event("error", {"incident_id": incident.incident_id, "stage": "send_card", "message": f"飞书通知失败: {e}"})
 
         try:
             repair_branch = build_repair_branch(incident.incident_id, incident.error_summary.error_type)
@@ -172,25 +201,24 @@ def _run_pipeline_on_new_incidents():
                 worktree_path=worktree_path,
                 policy_decision={"decision": "auto_fix", "confidence": "high"},
                 risk_level="medium",
+                report_url=doc_ref.url if doc_ref else "",
             )
             push_event("repair_job_created", {
                 "job_id": job.job_id,
                 "incident_id": incident.incident_id,
                 "issue_number": issue_ref.number,
+                "report_url": doc_ref.url if doc_ref else "",
                 "message": "修复任务已加入队列",
             })
             append_audit_event("pipeline_incident_processed", incident.incident_id, {
                 "issue_number": issue_ref.number,
                 "job_id": job.job_id,
+                "report_url": doc_ref.url if doc_ref else "",
                 "source": "watchdog",
             })
         except Exception as e:
             logger.error(f"创建修复任务失败: {e}", exc_info=True)
-            push_event("error", {
-                "incident_id": incident.incident_id,
-                "stage": "create_repair_job",
-                "message": f"创建修复任务失败: {e}",
-            })
+            push_event("error", {"incident_id": incident.incident_id, "stage": "create_repair_job", "message": f"创建修复任务失败: {e}"})
 
 
 def start_watchdog():
@@ -206,12 +234,20 @@ def start_watchdog():
         return
 
     first_log_path = Path(service.log_paths[0])
-    watch_dir = str(first_log_path.parent)
-    target_filenames = {first_log_path.name}
+    watch_dir = first_log_path.parent
 
-    _file_watchdog.start(watch_dir, target_filenames, _run_pipeline_on_new_incidents)
+    if not watch_dir.exists():
+        watch_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"日志目录不存在，已自动创建: {watch_dir}")
+
+    if not first_log_path.exists():
+        first_log_path.touch()
+        logger.info(f"日志文件不存在，已自动创建: {first_log_path}")
+
+    target_filenames = {first_log_path.name}
+    _file_watchdog.start(str(watch_dir), target_filenames, _run_pipeline_on_new_incidents)
     push_event("watchdog_started", {
-        "watch_dir": watch_dir,
+        "watch_dir": str(watch_dir),
         "target_files": list(target_filenames),
         "message": "文件监控已启动",
     })
