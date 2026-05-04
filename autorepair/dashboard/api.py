@@ -11,19 +11,18 @@ import sys
 import os
 import asyncio
 import logging
+import threading
 from collections import deque
 
 logger = logging.getLogger(__name__)
 
-# 导入现有统计模块
 from autorepair.dashboard.stats import (
     get_system_stats,
     get_incident_list,
     get_repair_job_list,
     get_issue_list,
-    get_pr_list
+    get_pr_list,
 )
-# 导入完整链路功能模块
 from autorepair.watcher import scan_service_logs_once
 from autorepair.service_registry import get_default_service
 from autorepair.adapters import feishu
@@ -43,6 +42,8 @@ from autorepair.repair.git_workspace import build_repair_branch
 from autorepair.repair.schemas import RepairJobStatus
 from autorepair.config import config, LOG_PATH, GITHUB_OWNER, GITHUB_REPO
 from autorepair.dashboard.watchdog import start_watchdog, stop_watchdog, get_watchdog_status
+from autorepair.scheduler import issue_poller
+
 
 @asynccontextmanager
 async def lifespan(app_instance):
@@ -51,37 +52,54 @@ async def lifespan(app_instance):
         logger.info("watchdog 已随 Dashboard 启动")
     except Exception as e:
         logger.error(f"watchdog 启动失败: {e}", exc_info=True)
+    try:
+        issue_poller.start()
+        logger.info("IssuePoller 已随 Dashboard 启动")
+    except Exception as e:
+        logger.error(f"IssuePoller 启动失败: {e}", exc_info=True)
     yield
+    try:
+        issue_poller.stop()
+    except Exception as e:
+        logger.error(f"IssuePoller 停止失败: {e}", exc_info=True)
     try:
         stop_watchdog()
     except Exception as e:
         logger.error(f"watchdog 停止失败: {e}", exc_info=True)
 
-app = FastAPI(title="FeishuAutoRepair Dashboard", version="1.0.0", lifespan=lifespan)
 
-# 事件系统：用于实时更新
-EVENT_QUEUE: deque = deque(maxlen=100)
+app = FastAPI(title="FeishuAutoRepair Dashboard", version="2.0.0", lifespan=lifespan)
+
+EVENT_QUEUE: deque = deque(maxlen=200)
 EVENT_WAITERS: list[asyncio.Future] = []
 LAST_EVENT_ID = 0
+_event_loop: asyncio.AbstractEventLoop | None = None
+
 
 def push_event(event_type: str, data: dict = None):
-    """推送事件到所有等待的客户端（线程安全）"""
     global LAST_EVENT_ID
     LAST_EVENT_ID += 1
     event = {
         "id": LAST_EVENT_ID,
         "type": event_type,
         "data": data or {},
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
     }
     EVENT_QUEUE.append(event)
 
+    if not EVENT_WAITERS:
+        return
+
     try:
-        if EVENT_WAITERS:
-            loop = EVENT_WAITERS[0].get_loop()
-            loop.call_soon_threadsafe(_resolve_waiters, event)
+        loop = EVENT_WAITERS[0].get_loop()
+        if loop.is_running():
+            if threading.current_thread() is not threading.main_thread():
+                loop.call_soon_threadsafe(_resolve_waiters, event)
+            else:
+                _resolve_waiters(event)
     except (IndexError, RuntimeError):
         pass
+
 
 def _resolve_waiters(event: dict):
     for future in EVENT_WAITERS:
@@ -89,12 +107,12 @@ def _resolve_waiters(event: dict):
             future.set_result(event)
     EVENT_WAITERS.clear()
 
-# 静态文件托管
+
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-# 首页路由
+
 @app.get("/")
 async def root():
     index_path = static_dir / "index.html"
@@ -102,121 +120,91 @@ async def root():
         return FileResponse(index_path)
     return {"message": "FeishuAutoRepair Dashboard API"}
 
-# 统计接口
+
 @app.get("/api/stats")
 async def api_get_stats() -> Dict[str, Any]:
-    """获取系统统计数据"""
     return get_system_stats()
+
 
 @app.get("/api/incidents")
 async def api_get_incidents(limit: Optional[int] = 100) -> List[Dict[str, Any]]:
-    """获取Incident列表"""
     return get_incident_list(limit=limit)
+
 
 @app.get("/api/issues")
 async def api_get_issues(limit: Optional[int] = 100) -> List[Dict[str, Any]]:
-    """获取Issue列表"""
     return get_issue_list(limit=limit)
+
 
 @app.get("/api/repair_jobs")
 async def api_get_repair_jobs(limit: Optional[int] = 100, status: Optional[str] = None) -> List[Dict[str, Any]]:
-    """获取修复任务列表，支持按状态筛选"""
     jobs = get_repair_job_list(limit=limit)
     if status:
         jobs = [job for job in jobs if job["status"] == status]
     return jobs
 
+
 @app.get("/api/prs")
 async def api_get_prs(limit: Optional[int] = 100) -> List[Dict[str, Any]]:
-    """获取PR列表"""
     return get_pr_list(limit=limit)
 
-# 手动触发接口
+
 class TriggerResponse(BaseModel):
     success: bool
     message: str
     data: Optional[Dict[str, Any]] = None
 
+
 @app.post("/api/trigger/scan_logs", response_model=TriggerResponse)
 async def api_trigger_scan_logs():
-    """手动触发日志扫描 - 完整链路：扫描日志→创建Incident→创建Issue→发送飞书卡片"""
     try:
-        # 获取默认服务
         service = get_default_service()
-        
-        # 扫描服务日志
         results = scan_service_logs_once(service)
         if not results:
             return TriggerResponse(
                 success=True,
                 message="日志扫描完成，未发现新异常",
-                data={
-                    "incidents_created": 0,
-                    "incidents_updated": 0,
-                    "issues_created": 0,
-                    "cards_sent": 0
-                }
+                data={"incidents_created": 0, "incidents_updated": 0, "issues_created": 0, "cards_sent": 0},
             )
-        
-        # 统计数据
+
         created_count = 0
         updated_count = 0
         feishu_sent_count = 0
         issue_created_count = 0
         details = []
-        
+
         for incident, action in results:
             summary = incident.error_summary
             if action == "created":
                 created_count += 1
-                
-                # 创建GitHub Issue
                 issue_ref = ensure_issue_for_incident(incident, service)
                 issue_url = issue_ref.html_url
                 incident.issue_number = issue_ref.number
                 incident.issue_url = issue_url
-                
-                # 持久化issue链接到incidents.jsonl
-                update_incident_fields(
-                    incident.incident_id,
-                    issue_number=issue_ref.number,
-                    issue_url=issue_url
-                )
-                
+                update_incident_fields(incident.incident_id, issue_number=issue_ref.number, issue_url=issue_url)
                 if issue_url:
                     issue_created_count += 1
                     details.append(f"Created Issue: {issue_url}")
-                
-                # 发送飞书卡片
                 send_result = send_incident_card(incident)
                 if send_result:
                     feishu_sent_count += 1
                     append_audit_event(
                         "feishu_card_sent" if not send_result.get("mock") else "feishu_card_mocked",
                         incident.incident_id,
-                        {"card_type": "incident_detected"}
+                        {"card_type": "incident_detected"},
                     )
                 else:
                     append_audit_event("feishu_card_failed", incident.incident_id, {"card_type": "incident_detected"})
-
-                # 记录审计
                 append_audit_event("incident_created", incident.incident_id, {
                     "error_type": summary.error_type,
                     "service": incident.service,
-                    "issue_url": issue_url
+                    "issue_url": issue_url,
                 })
-                
-                details.append(
-                    f"[created] {incident.incident_id} {summary.error_type} "
-                    f"{incident.service_name} occurrence_count={incident.occurrence_count}"
-                )
-                
+                details.append(f"[created] {incident.incident_id} {summary.error_type} {incident.service_name} occurrence_count={incident.occurrence_count}")
             else:
                 updated_count += 1
-                details.append(
-                    f"[updated] {incident.incident_id} occurrence_count={incident.occurrence_count}"
-                )
-        
+                details.append(f"[updated] {incident.incident_id} occurrence_count={incident.occurrence_count}")
+
         response = TriggerResponse(
             success=True,
             message=f"日志扫描完成：创建{created_count}个Incident，更新{updated_count}个，创建{issue_created_count}个Issue，发送{feishu_sent_count}个飞书卡片",
@@ -226,8 +214,8 @@ async def api_trigger_scan_logs():
                 "issues_created": issue_created_count,
                 "cards_sent": feishu_sent_count,
                 "service": service.name,
-                "details": details
-            }
+                "details": details,
+            },
         )
         push_event("logs_scanned", {
             "incidents_created": created_count,
@@ -239,9 +227,9 @@ async def api_trigger_scan_logs():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"日志扫描失败: {str(e)}")
 
+
 @app.post("/api/trigger/scan_issues", response_model=TriggerResponse)
 async def api_trigger_scan_issues():
-    """手动触发Issue扫描 - 扫描GitHub上的open bug issues，判断是否适合自动修复"""
     try:
         service = get_default_service()
         issues = list_open_bug_issues()
@@ -250,11 +238,7 @@ async def api_trigger_scan_issues():
             return TriggerResponse(
                 success=True,
                 message="Issue扫描完成，未发现待处理的Bug Issue",
-                data={
-                    "issues_found": 0,
-                    "suitable_for_fix": 0,
-                    "manual_intervention": 0
-                }
+                data={"issues_found": 0, "suitable_for_fix": 0, "manual_intervention": 0},
             )
 
         suitable_count = 0
@@ -264,26 +248,20 @@ async def api_trigger_scan_issues():
         for issue in issues:
             issue_id = f"ISSUE-{issue.number}"
             labels = issue.labels
-
-            # 检查是否适合自动修复
             if "bug" not in labels or "AutoRepair" not in labels:
                 details.append(f"#{issue.number}: 缺少必要标签，跳过")
                 continue
-
             if any(tag in labels for tag in ["invalid", "wontfix", "question"]):
                 details.append(f"#{issue.number}: 标记为无需处理，跳过")
                 continue
 
-            # 判断是否包含可修复的错误类型
             keywords = ["TypeError", "AttributeError", "IndexError", "KeyError", "ZeroDivisionError"]
             has_error_keyword = any(kw.lower() in issue.title.lower() for kw in keywords)
             has_traceback = "Traceback" in issue.body or 'File "' in issue.body
 
             if has_error_keyword or has_traceback:
                 suitable_count += 1
-                # 创建修复任务（补全所有必填参数）
                 import uuid
-                from autorepair.config import config
                 repair_branch = f"autorepair/issue-{issue.number}-{uuid.uuid4().hex[:6]}"
                 repair_job = create_repair_job(
                     incident_id=issue_id,
@@ -308,11 +286,11 @@ async def api_trigger_scan_issues():
                 append_audit_event("repair_plan_generated", issue_id, {
                     "issue_number": issue.number,
                     "issue_url": issue.html_url,
-                    "job_id": repair_job.job_id
+                    "job_id": repair_job.job_id,
                 })
                 append_audit_event("repair_job_created", issue_id, {
                     "job_id": repair_job.job_id,
-                    "issue_number": issue.number
+                    "issue_number": issue.number,
                 })
                 details.append(f"#{issue.number}: 适合自动修复，已创建修复任务 {repair_job.job_id} 并发送通知卡片")
             else:
@@ -327,48 +305,40 @@ async def api_trigger_scan_issues():
                 send_template_card("manual_intervention", variables)
                 append_audit_event("manual_intervention_required", issue_id, {
                     "issue_number": issue.number,
-                    "issue_url": issue.html_url
+                    "issue_url": issue.html_url,
                 })
                 details.append(f"#{issue.number}: 需要人工介入，已发送通知卡片")
 
         response = TriggerResponse(
             success=True,
             message=f"Issue扫描完成：发现{len(issues)}个Issue，{suitable_count}个适合修复，{manual_count}个需要人工介入",
-            data={
-                "issues_found": len(issues),
-                "suitable_for_fix": suitable_count,
-                "manual_intervention": manual_count,
-                "details": details
-            }
+            data={"issues_found": len(issues), "suitable_for_fix": suitable_count, "manual_intervention": manual_count, "details": details},
         )
-        push_event("issues_scanned", {
-            "issues_found": len(issues), 
-            "suitable_for_fix": suitable_count,
-            "jobs_created": suitable_count
-        })
+        push_event("issues_scanned", {"issues_found": len(issues), "suitable_for_fix": suitable_count, "jobs_created": suitable_count})
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Issue扫描失败: {str(e)}")
 
+
 @app.post("/api/trigger/run_repair", response_model=TriggerResponse)
 async def api_trigger_run_repair():
-    """手动触发修复任务 - 从queued队列中取出一个job执行完整修复链路"""
     try:
         from autorepair.repair.executor import execute_next_repair_job
         result = execute_next_repair_job()
-        
+
         if result.error:
             push_event("repair_executed", {
                 "job_id": result.job.job_id if result.job else None,
                 "success": False,
                 "error": result.error,
+                "failure_type": result.failure_type,
             })
             return TriggerResponse(
                 success=True,
                 message=result.error,
-                data={"job_id": result.job.job_id if result.job else None}
+                data={"job_id": result.job.job_id if result.job else None, "failure_type": result.failure_type},
             )
-        
+
         if result.job:
             push_event("repair_executed", {
                 "job_id": result.job.job_id,
@@ -379,20 +349,11 @@ async def api_trigger_run_repair():
             return TriggerResponse(
                 success=True,
                 message=f"修复任务完成: {result.job.job_id}",
-                data={
-                    "job_id": result.job.job_id,
-                    "status": result.job.status.value,
-                    "pr_url": result.job.pr_url,
-                    "pr_number": result.job.pr_number
-                }
+                data={"job_id": result.job.job_id, "status": result.job.status.value, "pr_url": result.job.pr_url, "pr_number": result.job.pr_number},
             )
-        
+
         push_event("repair_executed", {"success": True, "message": "没有待执行的修复任务"})
-        return TriggerResponse(
-            success=True,
-            message="没有待执行的修复任务",
-            data={"jobs_created": 0}
-        )
+        return TriggerResponse(success=True, message="没有待执行的修复任务", data={"jobs_created": 0})
     except Exception as e:
         push_event("repair_executed", {"success": False, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"修复任务执行失败: {str(e)}")
@@ -400,49 +361,39 @@ async def api_trigger_run_repair():
 
 @app.post("/api/trigger/run_all_repairs", response_model=TriggerResponse)
 async def api_trigger_run_all_repairs(max_concurrent: int = 3):
-    """手动触发所有排队修复任务 - 支持并发执行不同仓库的任务"""
     try:
         from autorepair.repair.executor import process_all_queued_jobs
         results = await process_all_queued_jobs(max_concurrent=max_concurrent)
-        
+
         success_count = sum(1 for r in results if r.success)
         total_count = len(results)
-        
+
         push_event("all_repairs_executed", {
             "total_jobs": total_count,
             "success_count": success_count,
-            "failed_count": total_count - success_count
+            "failed_count": total_count - success_count,
         })
-        
+
         return TriggerResponse(
             success=True,
             message=f"批量修复任务完成：总任务数{total_count}，成功{success_count}，失败{total_count - success_count}",
-            data={
-                "total_jobs": total_count,
-                "success_count": success_count,
-                "failed_count": total_count - success_count
-            }
+            data={"total_jobs": total_count, "success_count": success_count, "failed_count": total_count - success_count},
         )
     except Exception as e:
         push_event("all_repairs_executed", {"success": False, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"批量修复任务执行失败: {str(e)}")
 
+
 @app.post("/api/trigger/sync_prs", response_model=TriggerResponse)
 async def api_trigger_sync_prs():
-    """手动触发PR状态同步 - 扫描pr_created job，检查PR是否合并"""
     try:
         from autorepair.repair.job_store import DEFAULT_REPAIR_JOBS_PATH, load_repair_jobs
         from autorepair.repair.schemas import RepairJobStatus
 
         jobs = [job for job in load_repair_jobs(DEFAULT_REPAIR_JOBS_PATH) if job.status == RepairJobStatus.pr_created]
         if not jobs:
-            return TriggerResponse(
-                success=True,
-                message="没有需要同步的PR状态",
-                data={"updated_jobs": 0}
-            )
+            return TriggerResponse(success=True, message="没有需要同步的PR状态", data={"updated_jobs": 0})
 
-        # 内联 sync_once 逻辑，避免跨包导入问题
         merged_count = 0
         closed_count = 0
         for job in jobs:
@@ -465,25 +416,19 @@ async def api_trigger_sync_prs():
                 update_repair_job(job.job_id, path=DEFAULT_REPAIR_JOBS_PATH, status=RepairJobStatus.human_required, last_error="PR closed without merge")
                 closed_count += 1
 
-        push_event("prs_synced", {
-            "merged": merged_count,
-            "closed_without_merge": closed_count,
-        })
+        push_event("prs_synced", {"merged": merged_count, "closed_without_merge": closed_count})
         return TriggerResponse(
             success=True,
             message=f"PR状态同步完成：合并{merged_count}个，关闭{closed_count}个",
-            data={
-                "merged": merged_count,
-                "closed_without_merge": closed_count,
-            }
+            data={"merged": merged_count, "closed_without_merge": closed_count},
         )
     except Exception as e:
         push_event("prs_synced", {"success": False, "error": str(e)})
         raise HTTPException(status_code=500, detail=f"PR状态同步失败: {str(e)}")
 
+
 @app.post("/api/trigger/send_digest", response_model=TriggerResponse)
 async def api_trigger_send_digest():
-    """手动触发发送日报摘要"""
     try:
         from autorepair.cards import send_periodic_digest
         send_periodic_digest()
@@ -492,24 +437,19 @@ async def api_trigger_send_digest():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"发送失败: {str(e)}")
 
-@app.post("/api/trigger/run_full_pipeline", response_model=TriggerResponse)
-async def api_trigger_full_pipeline():
-    """一键全流程：扫描日志→判断合理性→创建Issue→诊断报告→发送飞书卡片→创建修复任务→执行修复→提交PR"""
+
+async def _run_full_pipeline_background():
     try:
         service = get_default_service()
-        pipeline_details = []
+        pipeline_details: list[str] = []
 
-        # Step 1: 扫描日志
         push_event("pipeline_started", {"message": "全流程开始执行"})
-        results = scan_service_logs_once(service)
+        await asyncio.sleep(0)
 
+        results = scan_service_logs_once(service)
         if not results:
             push_event("pipeline_completed", {"message": "全流程完成：未发现新异常"})
-            return TriggerResponse(
-                success=True,
-                message="全流程完成：日志扫描未发现新异常",
-                data={"steps_completed": ["scan_logs"], "incidents_found": 0}
-            )
+            return
 
         pipeline_details.append(f"扫描到 {len(results)} 个日志事件")
 
@@ -520,10 +460,10 @@ async def api_trigger_full_pipeline():
             push_event("incident_detected", {
                 "incident_id": incident.incident_id,
                 "error_type": incident.error_summary.error_type,
-                "message": f"检测到异常: {incident.error_summary.error_type}"
+                "message": f"检测到异常: {incident.error_summary.error_type}",
             })
+            await asyncio.sleep(0)
 
-            # Step 2: 创建Issue（含合理性判断）
             issue_ref = ensure_issue_for_incident(incident, service)
             issue_url = issue_ref.html_url
             incident.issue_number = issue_ref.number
@@ -531,39 +471,50 @@ async def api_trigger_full_pipeline():
             update_incident_fields(incident.incident_id, issue_number=issue_ref.number, issue_url=issue_url)
             pipeline_details.append(f"创建Issue: {issue_url}")
 
-            # Step 3: 生成诊断报告
-            from autorepair.reports.diagnostic_report_builder import build_diagnostic_report
-            from autorepair.adapters.note_report import NoteReportClient
-            note_client = NoteReportClient()
-
-            triage_result = type('MockTriageResult', (), {
-                'root_cause': f'{incident.error_summary.error_type}: {incident.error_summary.message}',
-                'risk_level': 'medium'
-            })()
-            report = build_diagnostic_report(
-                issue=issue_ref if hasattr(issue_ref, 'title') else type('MockIssue', (), {
-                    'title': f"Bug: {incident.error_summary.error_type}",
-                    'body': incident.raw_traceback[:500],
-                    'labels': ['bug', 'AutoRepair'],
-                    'number': issue_ref.number,
-                    'html_url': issue_ref.html_url
-                })(),
-                incident=incident,
-                validation_result="通过",
-                triage_result=triage_result,
-                policy_result="allowed"
-            )
-            doc_ref = note_client.create_diagnostic_report(report)
-
-            push_event("diagnostic_report_created", {
+            push_event("issue_created", {
                 "incident_id": incident.incident_id,
                 "issue_number": issue_ref.number,
-                "report_url": doc_ref.url,
-                "message": "诊断报告生成完成"
+                "issue_url": issue_ref.html_url,
+                "message": f"Issue已创建: #{issue_ref.number}",
             })
-            pipeline_details.append(f"诊断报告: {doc_ref.url}")
+            await asyncio.sleep(0)
 
-            # Step 4: 发送飞书卡片
+            try:
+                from autorepair.reports.diagnostic_report_builder import build_diagnostic_report
+                from autorepair.adapters.note_report import NoteReportClient
+
+                note_client = NoteReportClient()
+                triage_result = type("MockTriageResult", (), {
+                    "root_cause": f"{incident.error_summary.error_type}: {incident.error_summary.message}",
+                    "risk_level": "medium",
+                })()
+                report = build_diagnostic_report(
+                    issue=issue_ref if hasattr(issue_ref, "title") else type("MockIssue", (), {
+                        "title": f"Bug: {incident.error_summary.error_type}",
+                        "body": incident.raw_traceback[:500],
+                        "labels": ["bug", "AutoRepair"],
+                        "number": issue_ref.number,
+                        "html_url": issue_ref.html_url,
+                    })(),
+                    incident=incident,
+                    validation_result="通过",
+                    triage_result=triage_result,
+                    policy_result="allowed",
+                )
+                doc_ref = note_client.create_diagnostic_report(report)
+
+                push_event("diagnostic_report_created", {
+                    "incident_id": incident.incident_id,
+                    "issue_number": issue_ref.number,
+                    "report_url": doc_ref.url,
+                    "message": "诊断报告生成完成",
+                })
+                pipeline_details.append(f"诊断报告: {doc_ref.url}")
+                await asyncio.sleep(0)
+            except Exception as e:
+                logger.error(f"生成诊断报告失败: {e}", exc_info=True)
+                doc_ref = None
+
             send_result = send_incident_card(incident)
             feishu.send_repair_plan_ready(
                 incident_id=incident.incident_id,
@@ -572,17 +523,17 @@ async def api_trigger_full_pipeline():
                 fix_strategy="自动分析Traceback并生成修复补丁",
                 risk_level="medium",
                 policy_result="allowed",
-                report_url=doc_ref.url,
+                report_url=doc_ref.url if doc_ref else "",
             )
 
             push_event("card_sent", {
                 "incident_id": incident.incident_id,
                 "issue_number": issue_ref.number,
-                "message": "飞书卡片已发送"
+                "message": "飞书卡片已发送",
             })
             pipeline_details.append("飞书卡片已发送")
+            await asyncio.sleep(0)
 
-            # Step 5: 创建修复任务
             repair_branch = build_repair_branch(incident.incident_id, incident.error_summary.error_type)
             worktree_path = str(Path(service.repo_path) / ".worktrees" / incident.incident_id)
             job = create_repair_job(
@@ -596,7 +547,7 @@ async def api_trigger_full_pipeline():
                 worktree_path=worktree_path,
                 policy_decision={"decision": "auto_fix", "confidence": "high"},
                 risk_level="medium",
-                report_url=doc_ref.url,
+                report_url=doc_ref.url if doc_ref else "",
                 path=DEFAULT_REPAIR_JOBS_PATH,
             )
 
@@ -604,18 +555,18 @@ async def api_trigger_full_pipeline():
                 "job_id": job.job_id,
                 "incident_id": incident.incident_id,
                 "issue_number": issue_ref.number,
-                "report_url": doc_ref.url,
-                "message": "修复任务已加入队列"
+                "report_url": doc_ref.url if doc_ref else "",
+                "message": "修复任务已加入队列",
             })
             pipeline_details.append(f"修复任务: {job.job_id}")
+            await asyncio.sleep(0)
 
             append_audit_event("pipeline_incident_processed", incident.incident_id, {
                 "issue_number": issue_ref.number,
-                "report_url": doc_ref.url,
+                "report_url": doc_ref.url if doc_ref else "",
                 "job_id": job.job_id,
             })
 
-        # Step 6: 执行修复
         from autorepair.repair.executor import execute_next_repair_job
         repair_result = execute_next_repair_job()
         if repair_result.job:
@@ -625,27 +576,28 @@ async def api_trigger_full_pipeline():
 
         push_event("pipeline_completed", {
             "message": "全流程执行完成",
-            "details": pipeline_details
+            "details": pipeline_details,
         })
-
-        return TriggerResponse(
-            success=True,
-            message=f"全流程完成: {'; '.join(pipeline_details)}",
-            data={
-                "steps_completed": ["scan_logs", "create_issue", "diagnostic_report", "send_card", "create_repair_job", "execute_repair"],
-                "details": pipeline_details,
-                "repair_success": repair_result.success if repair_result else False,
-                "pr_url": repair_result.job.pr_url if repair_result and repair_result.job else None,
-            }
-        )
     except Exception as e:
+        logger.error(f"全流程执行失败: {e}", exc_info=True)
         push_event("pipeline_failed", {"message": f"全流程执行失败: {str(e)}"})
-        raise HTTPException(status_code=500, detail=f"全流程执行失败: {str(e)}")
+
+
+@app.post("/api/trigger/run_full_pipeline", response_model=TriggerResponse)
+async def api_trigger_full_pipeline():
+    asyncio.create_task(_run_full_pipeline_background())
+    push_event("pipeline_started", {"message": "全流程已启动，请关注事件流"})
+    return TriggerResponse(
+        success=True,
+        message="全流程已启动，请关注事件流",
+        data={"status": "started"},
+    )
 
 
 @app.get("/api/watchdog/status")
 async def api_watchdog_status():
     return get_watchdog_status()
+
 
 @app.post("/api/watchdog/start", response_model=TriggerResponse)
 async def api_watchdog_start():
@@ -654,6 +606,7 @@ async def api_watchdog_start():
         return TriggerResponse(success=True, message="文件监控已启动")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启动监控失败: {str(e)}")
+
 
 @app.post("/api/watchdog/stop", response_model=TriggerResponse)
 async def api_watchdog_stop():
@@ -664,37 +617,51 @@ async def api_watchdog_stop():
         raise HTTPException(status_code=500, detail=f"停止监控失败: {str(e)}")
 
 
+@app.get("/api/poller/status")
+async def api_poller_status():
+    return issue_poller.get_status()
+
+
+@app.post("/api/poller/start", response_model=TriggerResponse)
+async def api_poller_start():
+    try:
+        issue_poller.start()
+        return TriggerResponse(success=True, message="Issue轮询已启动")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"启动Issue轮询失败: {str(e)}")
+
+
+@app.post("/api/poller/stop", response_model=TriggerResponse)
+async def api_poller_stop():
+    try:
+        issue_poller.stop()
+        return TriggerResponse(success=True, message="Issue轮询已停止")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"停止Issue轮询失败: {str(e)}")
+
+
 @app.get("/api/events/long-poll")
 async def long_poll_events(last_event_id: int = 0):
-    """长轮询获取事件，没有新事件时请求挂起最多30秒"""
-    # 如果有比last_event_id新的事件，直接返回
     if EVENT_QUEUE and EVENT_QUEUE[-1]["id"] > last_event_id:
-        # 返回所有未消费的事件
         new_events = [e for e in EVENT_QUEUE if e["id"] > last_event_id]
         return {"events": new_events, "last_event_id": EVENT_QUEUE[-1]["id"]}
-    
-    # 没有新事件，等待最多30秒
+
     loop = asyncio.get_running_loop()
     future = loop.create_future()
     EVENT_WAITERS.append(future)
-    
+
     try:
-        # 等待30秒超时
         event = await asyncio.wait_for(future, timeout=30)
         return {"events": [event], "last_event_id": event["id"]}
     except asyncio.TimeoutError:
-        # 超时返回空列表
         return {"events": [], "last_event_id": last_event_id}
     finally:
-        # 从等待列表中移除
         if future in EVENT_WAITERS:
             EVENT_WAITERS.remove(future)
 
 
-# 配置接口
 @app.get("/api/config")
 async def api_get_config() -> Dict[str, Any]:
-    """获取系统配置"""
     return {
         "FEISHU_API_BASE_URL": config.FEISHU_API_BASE_URL,
         "FEISHU_APP_ID": config.FEISHU_APP_ID,
@@ -704,27 +671,26 @@ async def api_get_config() -> Dict[str, Any]:
         "GITHUB_REPO": config.GITHUB_REPO,
         "GITHUB_ASSIGNEE": config.GITHUB_ASSIGNEE,
         "TEST_CMD": config.TEST_CMD,
-        "LOG_PATH": str(LOG_PATH)
+        "LOG_PATH": str(LOG_PATH),
     }
+
 
 class ConfigUpdate(BaseModel):
     key: str
     value: Any
 
+
 @app.post("/api/config", response_model=TriggerResponse)
 async def api_update_config(update: ConfigUpdate):
-    """修改系统配置（待实现）"""
     try:
-        return TriggerResponse(
-            success=True,
-            message="配置更新功能待实现"
-        )
+        return TriggerResponse(success=True, message="配置更新功能待实现")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"配置更新失败: {str(e)}")
 
+
 def run_server(host: str = "127.0.0.1", port: int = 8888):
-    """启动Dashboard服务器"""
     uvicorn.run(app, host=host, port=port)
+
 
 if __name__ == "__main__":
     run_server()

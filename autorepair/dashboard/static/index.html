@@ -16,9 +16,13 @@
                     <h1 class="text-xl font-bold text-gray-800">🚀 FeishuAutoRepair 自动化修复系统</h1>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <div id="watchdog-status" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-sm">
+                    <div id="watchdog-status" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-sm cursor-pointer" onclick="toggleWatchdog()" title="点击切换监控">
                         <span id="watchdog-dot" class="w-2.5 h-2.5 rounded-full bg-gray-400"></span>
                         <span id="watchdog-label" class="text-gray-500">监控加载中</span>
+                    </div>
+                    <div id="poller-status" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-sm cursor-pointer" onclick="togglePoller()" title="点击切换Issue轮询">
+                        <span id="poller-dot" class="w-2.5 h-2.5 rounded-full bg-gray-400"></span>
+                        <span id="poller-label" class="text-gray-500">轮询加载中</span>
                     </div>
                     <span id="last-updated" class="text-sm text-gray-500">最后更新: 加载中...</span>
                     <button onclick="loadData()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
@@ -417,7 +421,19 @@
             'digest_sent': { icon: '📰', class: 'text-purple-600', message: '统计摘要已发送' },
             'watchdog_started': { icon: '👁️', class: 'text-green-600', message: '文件监控已启动' },
             'watchdog_stopped': { icon: '👁️‍🗨️', class: 'text-yellow-600', message: '文件监控已停止' },
-            'error': { icon: '❌', class: 'text-red-600', message: '处理出错' }
+            'error': { icon: '❌', class: 'text-red-600', message: '处理出错' },
+            'issue_polled': { icon: '🔍', class: 'text-cyan-600', message: 'Issue自动轮询' },
+            'auto_repair_triggered': { icon: '⚙️', class: 'text-orange-600', message: '自动触发修复' },
+            'auto_repair_finished': { icon: '🏁', class: 'text-green-600', message: '自动修复完成' },
+            'pipeline_started': { icon: '🚀', class: 'text-red-600', message: '全流程开始执行' },
+            'pipeline_completed': { icon: '🏁', class: 'text-green-600', message: '全流程执行完成' },
+            'pipeline_failed': { icon: '💥', class: 'text-red-600', message: '全流程执行失败' },
+            'repair_executed': { icon: '🔧', class: 'text-orange-600', message: '修复任务已执行' },
+            'all_repairs_executed': { icon: '📦', class: 'text-purple-600', message: '批量修复完成' },
+            'prs_synced': { icon: '🔗', class: 'text-blue-600', message: 'PR状态同步完成' },
+            'logs_scanned': { icon: '📋', class: 'text-green-600', message: '日志扫描完成' },
+            'issues_scanned': { icon: '📋', class: 'text-blue-600', message: 'Issue扫描完成' },
+            'digest_sent': { icon: '📊', class: 'text-purple-600', message: '统计摘要已发送' }
         };
         
         // 添加事件到事件流
@@ -475,9 +491,11 @@
                         if (event.type === 'watchdog_started' || event.type === 'watchdog_stopped') {
                             pollWatchdogStatus();
                         }
+                        if (event.type === 'pipeline_completed' || event.type === 'pipeline_failed' || event.type === 'auto_repair_finished') {
+                            loadData();
+                        }
                     });
                     lastEventId = data.last_event_id;
-                    loadData();
                 }
                 
                 startLongPoll();
@@ -510,10 +528,68 @@
             }
         }
 
+        let watchdogRunning = false;
+        let pollerRunning = false;
+
+        async function pollPollerStatus() {
+            try {
+                const res = await fetch('/api/poller/status');
+                const data = await res.json();
+                const dot = document.getElementById('poller-dot');
+                const label = document.getElementById('poller-label');
+                pollerRunning = data.running;
+                if (data.running) {
+                    dot.className = 'w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse';
+                    label.textContent = `Issue轮询中 (${data.interval_seconds}s)`;
+                    label.className = 'text-green-700';
+                } else {
+                    dot.className = 'w-2.5 h-2.5 rounded-full bg-gray-400';
+                    label.textContent = 'Issue轮询已停止';
+                    label.className = 'text-gray-500';
+                }
+            } catch (e) {
+                const dot = document.getElementById('poller-dot');
+                const label = document.getElementById('poller-label');
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-gray-400';
+                label.textContent = '连接失败';
+                label.className = 'text-gray-500';
+            }
+        }
+
+        async function toggleWatchdog() {
+            try {
+                const statusRes = await fetch('/api/watchdog/status');
+                const statusData = await statusRes.json();
+                const endpoint = statusData.running ? '/api/watchdog/stop' : '/api/watchdog/start';
+                const res = await fetch(endpoint, { method: 'POST' });
+                const result = await res.json();
+                showMessage(result.message, res.ok ? 'success' : 'error');
+                setTimeout(pollWatchdogStatus, 500);
+            } catch (e) {
+                showMessage(`操作失败: ${e.message}`, 'error');
+            }
+        }
+
+        async function togglePoller() {
+            try {
+                const statusRes = await fetch('/api/poller/status');
+                const statusData = await statusRes.json();
+                const endpoint = statusData.running ? '/api/poller/stop' : '/api/poller/start';
+                const res = await fetch(endpoint, { method: 'POST' });
+                const result = await res.json();
+                showMessage(result.message, res.ok ? 'success' : 'error');
+                setTimeout(pollPollerStatus, 500);
+            } catch (e) {
+                showMessage(`操作失败: ${e.message}`, 'error');
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             loadData();
             pollWatchdogStatus();
+            pollPollerStatus();
             setInterval(pollWatchdogStatus, 10000);
+            setInterval(pollPollerStatus, 10000);
             startLongPoll();
         });
     </script>

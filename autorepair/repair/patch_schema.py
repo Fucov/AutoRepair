@@ -26,7 +26,7 @@ class FilePatch(BaseModel):
 
 class PatchPlan(BaseModel):
     summary: str
-    files: list[FilePatch] = Field(min_items=1, max_items=3)
+    files: list[FilePatch] = Field(default_factory=list, max_items=5)
     tests_to_run: list[str] = Field(min_items=1)
     risk_level: Literal["low", "medium", "high"]
     confidence: float = Field(ge=0.0, le=1.0)

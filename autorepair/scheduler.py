@@ -1,7 +1,11 @@
 import os
+import logging
+import threading
 from pathlib import Path
 from typing import Optional
 from .config import PROJECT_ROOT
+
+logger = logging.getLogger(__name__)
 
 # 条件导入fcntl，仅Unix平台可用
 if os.name != 'nt':
@@ -107,5 +111,107 @@ class Scheduler:
         except Exception:
             return False
 
+class IssuePoller:
+    def __init__(self, interval: int | None = None):
+        self._interval = interval or int(os.getenv("ISSUE_POLL_INTERVAL", "30"))
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._running = False
+        self._processed_issues: set[int] = set()
+        self._last_poll_at: str | None = None
+        self._total_processed: int = 0
+        self._last_error: str | None = None
+
+    def start(self) -> None:
+        if self._running:
+            logger.warning("IssuePoller 已在运行中")
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._poll_loop, daemon=True, name="IssuePoller")
+        self._thread.start()
+        self._running = True
+        logger.info(f"IssuePoller 启动，轮询间隔: {self._interval}秒")
+
+    def stop(self) -> None:
+        if not self._running:
+            return
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=10)
+            self._thread = None
+        self._running = False
+        logger.info("IssuePoller 已停止")
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def get_status(self) -> dict:
+        return {
+            "running": self._running,
+            "interval_seconds": self._interval,
+            "total_processed": self._total_processed,
+            "last_poll_at": self._last_poll_at,
+            "last_error": self._last_error,
+            "pending_count": len(self._processed_issues),
+        }
+
+    def _poll_loop(self) -> None:
+        from datetime import datetime
+        while not self._stop_event.is_set():
+            try:
+                self._last_poll_at = datetime.now().isoformat()
+                self._poll_once()
+                self._last_error = None
+            except Exception as e:
+                self._last_error = str(e)
+                logger.error(f"IssuePoller 轮询失败: {e}", exc_info=True)
+            self._stop_event.wait(self._interval)
+
+    def _poll_once(self) -> None:
+        from autorepair.adapters.github import list_open_bug_issues
+        from autorepair.repair.orchestrator import process_issue_for_repair
+        from autorepair.dashboard.api import push_event
+
+        issues = list_open_bug_issues()
+        if not issues:
+            return
+
+        for issue in issues:
+            if issue.number in self._processed_issues:
+                continue
+
+            labels = issue.labels
+            if "bug" not in labels:
+                continue
+
+            already_active_labels = {
+                "autorepair:repairing",
+                "autorepair:pr-ready",
+                "autorepair:closed",
+                "autorepair:human-required",
+            }
+            if already_active_labels & set(labels):
+                self._processed_issues.add(issue.number)
+                continue
+
+            try:
+                job = process_issue_for_repair(issue.number)
+                self._processed_issues.add(issue.number)
+                self._total_processed += 1
+
+                push_event("issue_polled", {
+                    "issue_number": issue.number,
+                    "issue_title": issue.title,
+                    "job_id": job.job_id if job else None,
+                    "accepted": job is not None,
+                    "message": f"Issue #{issue.number} 自动轮询{'已接受' if job else '未通过'}",
+                })
+            except Exception as e:
+                logger.error(f"IssuePoller 处理 Issue #{issue.number} 失败: {e}", exc_info=True)
+                self._processed_issues.add(issue.number)
+
+
 # 全局调度器实例
 scheduler = Scheduler()
+issue_poller = IssuePoller()

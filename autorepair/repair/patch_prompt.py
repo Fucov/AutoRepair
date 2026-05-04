@@ -1,85 +1,131 @@
 from __future__ import annotations
+
 import json
+
 from autorepair.repair.context_collector import RepairContext
 from autorepair.repair.patch_schema import PatchPlan
 
-
-def build_patch_prompt(context: RepairContext) -> list[dict]:
-    code_snippets_str = "\n\n".join([
-        f"## {path}:\n```python\n{content}\n```"
-        for path, content in context.code_snippets.items()
-    ])
-    
-    existing_tests_str = "\n\n".join([
-        f"## {path}:\n```python\n{content}\n```"
-        for path, content in context.existing_tests.items()
-    ])
-    
-    system_prompt = f"""你是谨慎的代码修复Agent，专门修复ticket-timezone-sla时区相关bug。
+_SYSTEM_PROMPT = """你是专业的代码修复Agent，能分析任何 Python 运行时错误并生成最小化修复补丁。
 
 严格遵守以下规则：
-1. 只修复与时区比较相关的TypeError问题，不要修改任何无关代码
-2. 不要修改测试文件，不要放宽测试条件，不要删除现有测试
-3. 输出必须是严格的JSON格式，完全匹配PatchPlan schema定义
-4. 只能使用replace操作，old必须是原文件中存在的连续完整文本
-5. 修复策略优先级：
-   - 使用datetime.now(timezone.utc)获取当前时间
-   - 将fromisoformat得到的deadline统一转成timezone-aware UTC时间
-   - naive datetime默认补timezone.utc
-   - aware datetime用astimezone(timezone.utc)转换
-6. 必须包含测试命令，优先运行目标测试再运行全量测试
-7. 不要读取或修改任何密钥、配置文件
+1. 分析错误栈，定位根因，阅读相关代码，理解上下文。
+2. 只修改必须修改的代码，保持最小化改动。
+3. 不修改测试文件，除非测试本身存在 bug。
+4. 不修改配置文件，不读取或输出密钥。
+5. old 必须是文件中实际存在的连续完整文本（包括缩进），不能凭空编造。
+6. 如果确实无法修复，在 summary 中说明具体原因和建议的解决方法，files 留空列表。
+7. tests_to_run 中必须包含至少一个 pytest 命令。
+8. 修复后不能引入新的语法错误或类型错误。
+9. 优先修复源码文件，不要尝试修复第三方库。
 
-PatchPlan schema定义：
-{json.dumps(PatchPlan.model_json_schema(), indent=2, ensure_ascii=False)}
+PatchPlan schema 定义：
+{schema}
 
-输出示例：
-{{
-  "summary": "Normalize SLA deadline and current time to timezone-aware UTC before comparison.",
-  "files": [
-    {{
-      "path": "demo_service/ticket_service.py",
-      "operation": "replace",
-      "old": "def calculate_sla_deadline(deadline_str: str) -> datetime: ...",
-      "new": "def calculate_sla_deadline(deadline_str: str) -> datetime: ..."
-    }}
-  ],
-  "tests_to_run": [
-    "pytest -q demo_service/tests/test_ticket_contract.py::test_timezone_aware_sla_deadline_should_create_ticket -m agent_target",
-    "pytest -q"
-  ],
-  "risk_level": "low",
-  "confidence": 0.88
-}}
+输出要求：严格输出合法 JSON，不要包含 markdown 代码块标记。
 """
 
-    user_prompt = f"""请修复以下bug：
+_USER_TEMPLATE = """请修复以下 bug：
 
-Incident ID: {context.incident_id}
-Issue Number: #{context.issue_number}
-错误类型: {context.error_type}
-错误信息: {context.error_message}
-疑似文件: {context.suspected_file}
-行号: {context.line_no}
+Incident ID: {incident_id}
+Issue Number: #{issue_number}
+错误类型: {error_type}
+错误信息: {error_message}
+疑似文件: {suspected_file}
+行号: {line_no}
 
 错误栈:
 ```
-{context.raw_traceback}
+{raw_traceback}
 ```
 
 相关代码:
-{code_snippets_str}
+{code_snippets}
 
 相关测试:
-{existing_tests_str}
+{existing_tests}
 
-目标测试命令: {context.target_test_command}
-全量测试命令: {context.full_test_command}
+项目结构:
+```
+{project_structure}
+```
 
-请输出修复方案JSON。
+依赖信息:
+```
+{dependencies}
+```
+
+目标测试命令: {target_test_command}
+全量测试命令: {full_test_command}
+
+请输出修复方案 JSON。
 """
+
+_RETRY_TEMPLATE = """修复失败，需要重新生成方案。
+
+上次失败原因：
+{failure_detail}
+
+上次生成的方案：
+```json
+{last_plan_json}
+```
+
+请根据失败信息修正你的修复方案，特别注意：
+- 如果是 old 内容不匹配，请确保从代码中精确复制文本，包括所有缩进和换行。
+- 如果是测试失败，请分析测试输出，理解期望行为，调整修复策略。
+- 如果是回归测试失败，说明修复引入了新问题，请缩小修改范围。
+
+请输出修正后的修复方案 JSON。
+"""
+
+
+def build_patch_prompt(context: RepairContext) -> list[dict]:
+    code_snippets_str = "\n\n".join(
+        f"## {path}:\n```python\n{content}\n```"
+        for path, content in context.code_snippets.items()
+    ) or "(无代码片段)"
+
+    existing_tests_str = "\n\n".join(
+        f"## {path}:\n```python\n{content}\n```"
+        for path, content in context.existing_tests.items()
+    ) or "(无相关测试)"
+
+    system_prompt = _SYSTEM_PROMPT.format(
+        schema=json.dumps(PatchPlan.model_json_schema(), indent=2, ensure_ascii=False),
+    )
+
+    user_prompt = _USER_TEMPLATE.format(
+        incident_id=context.incident_id,
+        issue_number=context.issue_number,
+        error_type=context.error_type,
+        error_message=context.error_message,
+        suspected_file=context.suspected_file or "unknown",
+        line_no=context.line_no or "unknown",
+        raw_traceback=context.raw_traceback,
+        code_snippets=code_snippets_str,
+        existing_tests=existing_tests_str,
+        project_structure=context.project_structure or "(未知)",
+        dependencies=context.dependencies or "(未知)",
+        target_test_command=context.target_test_command,
+        full_test_command=context.full_test_command,
+    )
 
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_retry_prompt(
+    existing_messages: list[dict],
+    last_plan_json: str,
+    failure_detail: str,
+) -> list[dict]:
+    retry_msg = _RETRY_TEMPLATE.format(
+        failure_detail=failure_detail,
+        last_plan_json=last_plan_json,
+    )
+    return existing_messages + [
+        {"role": "assistant", "content": last_plan_json},
+        {"role": "user", "content": retry_msg},
     ]
