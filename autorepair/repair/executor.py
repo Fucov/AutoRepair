@@ -20,8 +20,10 @@ from autorepair.adapters.feishu import send_manual_intervention_card, send_fix_p
 from autorepair.audit_store import append_audit_event
 from autorepair.dashboard.api import push_event
 from autorepair.incident_store import get_incident_by_id
+from autorepair.service_registry import get_default_service
 from autorepair.repair.context_collector import collect_repair_context
 from autorepair.repair.git_workspace import (
+    create_repair_worktree,
     git_commit_all,
     git_push_branch,
     get_git_diff,
@@ -139,6 +141,14 @@ def execute_next_repair_job() -> RepairExecutionResult:
             incident = get_incident_by_id(job.incident_id)
             if not incident:
                 raise ValueError(f"Incident {job.incident_id} not found")
+
+            service = get_default_service()
+            create_repair_worktree(
+                repo_path=service.repo_path,
+                base_branch=job.base_branch,
+                repair_branch=job.repair_branch,
+                incident_id=job.incident_id,
+            )
 
             try:
                 context = collect_repair_context(job, incident, job.worktree_path)

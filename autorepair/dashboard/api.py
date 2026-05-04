@@ -266,6 +266,7 @@ async def api_trigger_scan_issues():
                 repair_job = create_repair_job(
                     incident_id=issue_id,
                     issue_number=issue.number,
+                    service_name=service.name,
                     repo_owner=config.GITHUB_OWNER or "default-owner",
                     repo_name=config.GITHUB_REPO or "default-repo",
                     base_branch="main",
@@ -564,6 +565,7 @@ async def _run_full_pipeline_background():
                 incident_id=incident.incident_id,
                 issue_number=issue_ref.number,
                 issue_url=issue_ref.html_url,
+                service_name=service.name,
                 repo_owner=GITHUB_OWNER or "local",
                 repo_name=GITHUB_REPO or Path(service.repo_path).name,
                 base_branch=os.getenv("GITHUB_BASE_BRANCH", "main"),
@@ -592,11 +594,20 @@ async def _run_full_pipeline_background():
             })
 
         from autorepair.repair.executor import execute_next_repair_job
-        repair_result = execute_next_repair_job()
-        if repair_result.job:
-            pipeline_details.append(f"修复执行: {repair_result.job.status.value}")
-            if repair_result.job.pr_url:
-                pipeline_details.append(f"PR: {repair_result.job.pr_url}")
+        from autorepair.repair.job_store import load_repair_jobs
+        from autorepair.repair.schemas import RepairJobStatus
+
+        for _ in range(5):
+            queued = [j for j in load_repair_jobs() if j.status == RepairJobStatus.queued]
+            if not queued:
+                break
+            repair_result = execute_next_repair_job()
+            if repair_result.job:
+                pipeline_details.append(f"修复执行 [{repair_result.job.job_id}]: {repair_result.job.status.value}")
+                if repair_result.job.pr_url:
+                    pipeline_details.append(f"PR: {repair_result.job.pr_url}")
+            if not repair_result.success and not repair_result.job:
+                break
 
         push_event("pipeline_completed", {
             "message": "全流程执行完成",

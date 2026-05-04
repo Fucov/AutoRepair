@@ -28,7 +28,9 @@ def run_command_in_worktree(command: str, worktree_path: str, timeout: int = 120
             shell=True,
             capture_output=True,
             text=True,
-            timeout=timeout
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
         )
         
         duration = time.time() - start_time

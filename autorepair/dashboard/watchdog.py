@@ -218,6 +218,7 @@ def _run_pipeline_on_new_incidents():
                 incident_id=incident.incident_id,
                 issue_number=issue_ref.number,
                 issue_url=issue_ref.html_url,
+                service_name=service.name,
                 repo_owner=GITHUB_OWNER or "local",
                 repo_name=GITHUB_REPO or Path(service.repo_path).name,
                 base_branch="main",
@@ -243,25 +244,33 @@ def _run_pipeline_on_new_incidents():
 
             try:
                 from autorepair.repair.executor import execute_next_repair_job
+                from autorepair.repair.job_store import load_repair_jobs
+                from autorepair.repair.schemas import RepairJobStatus
                 push_event("auto_repair_triggered", {
                     "job_id": job.job_id,
                     "incident_id": incident.incident_id,
                     "message": "自动触发修复执行",
                 })
-                result = execute_next_repair_job()
-                if result.success and result.job:
-                    push_event("auto_repair_finished", {
-                        "job_id": result.job.job_id,
-                        "pr_url": result.job.pr_url,
-                        "message": f"自动修复完成: {result.job.job_id}",
-                    })
-                elif not result.success:
-                    push_event("auto_repair_finished", {
-                        "job_id": job.job_id,
-                        "error": result.error,
-                        "failure_type": result.failure_type,
-                        "message": f"自动修复失败: {result.error[:100] if result.error else 'unknown'}",
-                    })
+                for _ in range(5):
+                    queued = [j for j in load_repair_jobs() if j.status == RepairJobStatus.queued]
+                    if not queued:
+                        break
+                    result = execute_next_repair_job()
+                    if result.success and result.job:
+                        push_event("auto_repair_finished", {
+                            "job_id": result.job.job_id,
+                            "pr_url": result.job.pr_url,
+                            "message": f"自动修复完成: {result.job.job_id}",
+                        })
+                    elif not result.success and result.job:
+                        push_event("auto_repair_finished", {
+                            "job_id": result.job.job_id,
+                            "error": result.error,
+                            "failure_type": result.failure_type,
+                            "message": f"自动修复失败: {result.error[:100] if result.error else 'unknown'}",
+                        })
+                    elif not result.success:
+                        break
             except Exception as repair_e:
                 logger.error(f"自动触发修复执行失败: {repair_e}", exc_info=True)
                 push_event("error", {

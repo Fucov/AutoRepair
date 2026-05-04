@@ -50,6 +50,8 @@ def _run_git(repo_path: Path, args: list[str]) -> subprocess.CompletedProcess:
         text=True,
         capture_output=True,
         check=False,
+        encoding="utf-8",
+        errors="replace",
     )
     append_audit_event(
         "git_command",
@@ -68,6 +70,8 @@ def _branch_exists(repo_path: Path, branch: str) -> bool:
         text=True,
         capture_output=True,
         check=False,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.returncode == 0
 
@@ -150,5 +154,7 @@ def get_git_diff(worktree_path: str | Path) -> str:
         text=True,
         capture_output=True,
         check=False,
+        encoding="utf-8",
+        errors="replace",
     )
     return result.stdout

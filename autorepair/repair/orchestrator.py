@@ -215,6 +215,7 @@ def process_issue_for_repair(issue_number: int) -> RepairJob | None:
         incident_id=incident_id,
         issue_number=issue.number,
         issue_url=issue.html_url,
+        service_name=service.name,
         repo_owner=GITHUB_OWNER or "local",
         repo_name=GITHUB_REPO or Path(service.repo_path).name,
         base_branch=os.getenv("GITHUB_BASE_BRANCH", "main"),

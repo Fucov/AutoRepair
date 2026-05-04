@@ -103,6 +103,8 @@ class MiniRepairTools:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                encoding="utf-8",
+                errors="replace",
             )
             output = result.stdout + ("\n" + result.stderr if result.stderr else "")
             return ToolResult(
@@ -179,6 +181,8 @@ class MiniRepairTools:
                 capture_output=True,
                 text=True,
                 timeout=10,
+                encoding="utf-8",
+                errors="replace",
             )
             return ToolResult(
                 tool="git_diff",

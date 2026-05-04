@@ -406,6 +406,8 @@ def send_manual_intervention(
             human_reason=reason_brief,
             evidence_summary=evidence_brief,
             next_action=suggested_action,
+            issue_url=issue_url,
+            report_url=report_url,
         ),
     )
 
