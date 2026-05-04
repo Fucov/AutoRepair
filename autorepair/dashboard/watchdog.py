@@ -165,8 +165,30 @@ def _run_pipeline_on_new_incidents():
         except Exception as e:
             logger.error(f"生成诊断报告失败: {e}", exc_info=True)
 
+        plan_ref = None
+        try:
+            from autorepair.reports.repair_plan_builder import build_repair_plan, render_repair_plan_plaintext
+
+            plan = build_repair_plan(
+                incident=incident,
+                service_name=service.name,
+                test_command=service.agent_target_test_command or service.test_command,
+            )
+            plan_content = render_repair_plan_plaintext(plan)
+            plan_title = f"修复计划 - {incident.incident_id} - {incident.error_summary.error_type}"
+            plan_ref = note_client.create_report(plan_title, plan_content)
+            push_event("repair_plan_created", {
+                "incident_id": incident.incident_id,
+                "issue_number": issue_ref.number,
+                "plan_url": plan_ref.url,
+                "message": "修复计划文档生成完成",
+            })
+        except Exception as e:
+            logger.error(f"生成修复计划失败: {e}", exc_info=True)
+
         try:
             report_url = doc_ref.url if doc_ref else ""
+            plan_url = plan_ref.url if plan_ref else report_url
             send_incident_card(incident)
             send_repair_plan_ready(
                 incident_id=incident.incident_id,
@@ -175,12 +197,13 @@ def _run_pipeline_on_new_incidents():
                 fix_strategy="自动分析Traceback并生成修复补丁",
                 risk_level="medium",
                 policy_result="allowed",
-                report_url=report_url,
+                report_url=plan_url,
             )
             push_event("card_sent", {
                 "incident_id": incident.incident_id,
                 "issue_number": issue_ref.number,
                 "report_url": report_url,
+                "plan_url": plan_url,
                 "message": "飞书卡片已发送",
             })
         except Exception as e:
@@ -190,6 +213,7 @@ def _run_pipeline_on_new_incidents():
         try:
             repair_branch = build_repair_branch(incident.incident_id, incident.error_summary.error_type)
             worktree_path = str(Path(service.repo_path) / ".worktrees" / incident.incident_id)
+            plan_url = plan_ref.url if plan_ref else (doc_ref.url if doc_ref else "")
             job = create_repair_job(
                 incident_id=incident.incident_id,
                 issue_number=issue_ref.number,
@@ -201,13 +225,13 @@ def _run_pipeline_on_new_incidents():
                 worktree_path=worktree_path,
                 policy_decision={"decision": "auto_fix", "confidence": "high"},
                 risk_level="medium",
-                report_url=doc_ref.url if doc_ref else "",
+                report_url=plan_url,
             )
             push_event("repair_job_created", {
                 "job_id": job.job_id,
                 "incident_id": incident.incident_id,
                 "issue_number": issue_ref.number,
-                "report_url": doc_ref.url if doc_ref else "",
+                "report_url": plan_url,
                 "message": "修复任务已加入队列",
             })
             append_audit_event("pipeline_incident_processed", incident.incident_id, {
@@ -281,6 +305,20 @@ def start_watchdog():
         "target_files": list(target_filenames),
         "message": "文件监控已启动",
     })
+
+    threading.Thread(target=_initial_scan, daemon=True).start()
+
+
+def _initial_scan():
+    try:
+        from autorepair.service_registry import get_default_service
+        from autorepair.dashboard.api import push_event
+        service = get_default_service()
+        push_event("initial_scan_started", {"message": "启动时初始扫描已触发"})
+        _run_pipeline_on_new_incidents()
+        push_event("initial_scan_finished", {"message": "启动时初始扫描完成"})
+    except Exception as e:
+        logger.error(f"初始扫描失败: {e}", exc_info=True)
 
 
 def stop_watchdog():

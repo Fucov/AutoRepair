@@ -449,11 +449,14 @@ def create_issue(
 def add_labels(issue_number: int, labels: List[str]) -> bool:
     """
     给Issue添加标签
+    自动确保标签存在于仓库中，避免422错误
     配置缺失时更新本地mock Issue
     """
+    if not labels:
+        return True
+
     if not _is_github_configured():
         logger.debug(f"Mock给Issue #{issue_number}添加标签: {labels}")
-        # 更新本地mock Issue的标签
         issues = _load_mock_issues()
         for issue in issues:
             if issue["number"] == issue_number:
@@ -465,16 +468,39 @@ def add_labels(issue_number: int, labels: List[str]) -> bool:
                 break
         return True
 
+    for label in labels:
+        if label in AUTOREPAIR_LABELS:
+            color, description = AUTOREPAIR_LABELS[label]
+            ensure_label(label, color, description)
+        else:
+            ensure_label(label)
+
     try:
+        existing = _get_issue_labels_set(issue_number)
+        new_labels = [l for l in labels if l not in existing]
+        if not new_labels:
+            return True
+
         url = f"{GITHUB_API_BASE_URL}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues/{issue_number}/labels"
-        payload = {"labels": labels}
+        payload = {"labels": new_labels}
         response = httpx.post(url, headers=_get_headers(), json=payload, timeout=10)
         response.raise_for_status()
-        logger.info(f"成功给Issue #{issue_number}添加标签: {labels}")
+        logger.info(f"成功给Issue #{issue_number}添加标签: {new_labels}")
         return True
     except Exception as e:
         logger.error(f"给Issue #{issue_number}添加标签失败: {str(e)}")
         return False
+
+
+def _get_issue_labels_set(issue_number: int) -> set[str]:
+    try:
+        url = f"{GITHUB_API_BASE_URL}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/issues/{issue_number}"
+        response = httpx.get(url, headers=_get_headers(), timeout=10)
+        if response.status_code == 200:
+            return {label["name"] for label in response.json().get("labels", [])}
+    except Exception:
+        pass
+    return set()
 
 
 def remove_labels(issue_number: int, labels: List[str]) -> bool:

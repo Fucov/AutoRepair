@@ -515,6 +515,30 @@ async def _run_full_pipeline_background():
                 logger.error(f"生成诊断报告失败: {e}", exc_info=True)
                 doc_ref = None
 
+            plan_ref = None
+            try:
+                from autorepair.reports.repair_plan_builder import build_repair_plan, render_repair_plan_plaintext
+
+                plan = build_repair_plan(
+                    incident=incident,
+                    service_name=service.name,
+                    test_command=service.agent_target_test_command or service.test_command,
+                )
+                plan_content = render_repair_plan_plaintext(plan)
+                plan_title = f"修复计划 - {incident.incident_id} - {incident.error_summary.error_type}"
+                plan_ref = note_client.create_report(plan_title, plan_content)
+                push_event("repair_plan_created", {
+                    "incident_id": incident.incident_id,
+                    "issue_number": issue_ref.number,
+                    "plan_url": plan_ref.url,
+                    "message": "修复计划文档生成完成",
+                })
+                pipeline_details.append(f"修复计划: {plan_ref.url}")
+                await asyncio.sleep(0)
+            except Exception as e:
+                logger.error(f"生成修复计划失败: {e}", exc_info=True)
+
+            plan_url = plan_ref.url if plan_ref else (doc_ref.url if doc_ref else "")
             send_result = send_incident_card(incident)
             feishu.send_repair_plan_ready(
                 incident_id=incident.incident_id,
@@ -523,7 +547,7 @@ async def _run_full_pipeline_background():
                 fix_strategy="自动分析Traceback并生成修复补丁",
                 risk_level="medium",
                 policy_result="allowed",
-                report_url=doc_ref.url if doc_ref else "",
+                report_url=plan_url,
             )
 
             push_event("card_sent", {
@@ -547,7 +571,7 @@ async def _run_full_pipeline_background():
                 worktree_path=worktree_path,
                 policy_decision={"decision": "auto_fix", "confidence": "high"},
                 risk_level="medium",
-                report_url=doc_ref.url if doc_ref else "",
+                report_url=plan_url,
                 path=DEFAULT_REPAIR_JOBS_PATH,
             )
 

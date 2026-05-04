@@ -107,7 +107,7 @@
                             <th class="text-left py-3 px-4">任务ID</th>
                             <th class="text-left py-3 px-4">事件ID</th>
                             <th class="text-left py-3 px-4">Issue</th>
-                            <th class="text-left py-3 px-4">诊断报告</th>
+                            <th class="text-left py-3 px-4">修复计划</th>
                             <th class="text-left py-3 px-4">状态</th>
                             <th class="text-left py-3 px-4">PR链接</th>
                             <th class="text-left py-3 px-4">创建时间</th>
@@ -124,7 +124,16 @@
 
         <!-- 实时事件流 -->
         <div class="bg-white rounded-lg shadow p-6 mb-8">
-            <h3 class="text-lg font-semibold mb-4">⚡ 实时处理事件流</h3>
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold">⚡ 实时处理事件流</h3>
+                <div class="flex items-center space-x-2">
+                    <input type="text" id="event-filter-input" placeholder="输入Incident ID或Issue号过滤..." 
+                        class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        oninput="applyEventFilter()">
+                    <button onclick="clearEventFilter()" class="text-sm text-gray-500 hover:text-gray-700 px-2 py-1.5 border border-gray-300 rounded-lg">清除</button>
+                </div>
+            </div>
+            <div class="text-xs text-gray-400 mb-2" id="event-count">共 0 条事件</div>
             <div class="overflow-y-auto max-h-60 bg-gray-50 rounded p-4" id="event-stream">
                 <div class="text-gray-500 text-center py-4">等待事件...</div>
             </div>
@@ -162,6 +171,19 @@
         // 全局Chart实例，用于销毁旧图表
         let trendChart = null;
         let errorTypeChart = null;
+
+        function shortIncidentId(id) {
+            if (!id) return '-';
+            if (id.startsWith('INC-')) {
+                return id;
+            }
+            return id.length > 16 ? id.slice(-16) : id;
+        }
+
+        function shortJobId(id) {
+            if (!id) return '-';
+            return id.length > 16 ? id.slice(-16) : id;
+        }
 
         // 加载数据
         async function loadData() {
@@ -288,7 +310,7 @@
                 const row = document.createElement('tr');
                 row.className = 'border-b hover:bg-gray-50';
                 row.innerHTML = `
-                    <td class="py-3 px-4 font-mono text-sm">${inc.incident_id.slice(0, 8)}</td>
+                    <td class="py-3 px-4 font-mono text-sm" title="${inc.incident_id}">${shortIncidentId(inc.incident_id)}</td>
                     <td class="py-3 px-4">
                         <span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs">${inc.error_type}</span>
                     </td>
@@ -330,13 +352,13 @@
                 }
 
                 row.innerHTML = `
-                    <td class="py-3 px-4 font-mono text-sm">${job.job_id.slice(0, 8)}</td>
-                    <td class="py-3 px-4 font-mono text-sm">${job.incident_id ? job.incident_id.slice(0, 8) : '-'}</td>
+                    <td class="py-3 px-4 font-mono text-sm" title="${job.job_id}">${shortJobId(job.job_id)}</td>
+                    <td class="py-3 px-4 font-mono text-sm" title="${job.incident_id || ''}">${job.incident_id ? shortIncidentId(job.incident_id) : '-'}</td>
                     <td class="py-3 px-4">
                         ${job.issue_url ? `<a href="${job.issue_url}" target="_blank" class="text-blue-600 hover:underline">#${job.issue_number}</a>` : (job.issue_number ? '#' + job.issue_number : '-')}
                     </td>
                     <td class="py-3 px-4">
-                        ${job.report_url ? `<a href="${job.report_url}" target="_blank" class="text-blue-600 hover:underline">查看报告</a>` : '-'}
+                        ${job.report_url ? `<a href="${job.report_url}" target="_blank" class="text-blue-600 hover:underline">查看计划</a>` : '-'}
                     </td>
                     <td class="py-3 px-4">
                         <span class="${statusClass} px-2 py-1 rounded text-xs">${job.status}</span>
@@ -404,6 +426,7 @@
             'issue_created': { icon: '📝', class: 'text-blue-600', message: 'GitHub Issue已创建' },
             'triage_decision': { icon: '🧠', class: 'text-purple-600', message: '分诊决策完成' },
             'diagnostic_report_created': { icon: '📊', class: 'text-purple-600', message: '诊断报告生成完成' },
+            'repair_plan_created': { icon: '📋', class: 'text-teal-600', message: '修复计划文档已生成' },
             'repair_job_created': { icon: '📋', class: 'text-yellow-600', message: '修复任务已创建' },
             'repair_started': { icon: '🔧', class: 'text-orange-600', message: '开始执行修复' },
             'repair_context_collected': { icon: '📦', class: 'text-teal-600', message: '修复上下文收集完成' },
@@ -425,6 +448,8 @@
             'issue_polled': { icon: '🔍', class: 'text-cyan-600', message: 'Issue自动轮询' },
             'auto_repair_triggered': { icon: '⚙️', class: 'text-orange-600', message: '自动触发修复' },
             'auto_repair_finished': { icon: '🏁', class: 'text-green-600', message: '自动修复完成' },
+            'initial_scan_started': { icon: '🔍', class: 'text-blue-600', message: '启动时初始扫描开始' },
+            'initial_scan_finished': { icon: '✅', class: 'text-green-600', message: '启动时初始扫描完成' },
             'pipeline_started': { icon: '🚀', class: 'text-red-600', message: '全流程开始执行' },
             'pipeline_completed': { icon: '🏁', class: 'text-green-600', message: '全流程执行完成' },
             'pipeline_failed': { icon: '💥', class: 'text-red-600', message: '全流程执行失败' },
@@ -451,13 +476,15 @@
             let detail = '';
             if (event.data) {
                 if (event.data.incident_id) {
-                    detail += `事件ID: ${event.data.incident_id.slice(0, 8)} `;
+                    detail += `事件ID: ${shortIncidentId(event.data.incident_id)} `;
+                    eventEl.setAttribute('data-incident-id', event.data.incident_id);
                 }
                 if (event.data.issue_number) {
                     detail += `Issue: #${event.data.issue_number} `;
+                    eventEl.setAttribute('data-issue-number', String(event.data.issue_number));
                 }
                 if (event.data.job_id) {
-                    detail += `任务ID: ${event.data.job_id.slice(0, 8)} `;
+                    detail += `任务ID: ${shortJobId(event.data.job_id)} `;
                 }
                 if (event.data.message) {
                     detail += event.data.message;
@@ -471,12 +498,52 @@
                 ${detail ? `<span class="ml-2 text-sm text-gray-600">${detail}</span>` : ''}
             `;
             
-            // 插入到最前面
             eventStream.insertBefore(eventEl, eventStream.firstChild);
             
-            // 最多保留50条事件
             if (eventStream.children.length > 50) {
                 eventStream.removeChild(eventStream.lastChild);
+            }
+
+            applyEventFilter();
+            updateEventCount();
+        }
+
+        function applyEventFilter() {
+            const filterInput = document.getElementById('event-filter-input');
+            const keyword = (filterInput.value || '').trim().toLowerCase();
+            const eventStream = document.getElementById('event-stream');
+            const items = eventStream.querySelectorAll('[data-incident-id], [data-issue-number]');
+
+            eventStream.querySelectorAll('div[class*="mb-2"]').forEach(el => {
+                if (!keyword) {
+                    el.style.display = '';
+                    return;
+                }
+                const incId = (el.getAttribute('data-incident-id') || '').toLowerCase();
+                const issueNum = (el.getAttribute('data-issue-number') || '').toLowerCase();
+                const text = el.textContent.toLowerCase();
+                if (incId.includes(keyword) || issueNum.includes(keyword) || text.includes(keyword)) {
+                    el.style.display = '';
+                } else {
+                    el.style.display = 'none';
+                }
+            });
+            updateEventCount();
+        }
+
+        function clearEventFilter() {
+            document.getElementById('event-filter-input').value = '';
+            applyEventFilter();
+        }
+
+        function updateEventCount() {
+            const eventStream = document.getElementById('event-stream');
+            const allItems = eventStream.querySelectorAll('div[class*="mb-2"]');
+            const visibleItems = [...allItems].filter(el => el.style.display !== 'none');
+            const countEl = document.getElementById('event-count');
+            const keyword = document.getElementById('event-filter-input').value.trim();
+            if (countEl) {
+                countEl.textContent = keyword ? `显示 ${visibleItems.length} / 共 ${allItems.length} 条事件` : `共 ${allItems.length} 条事件`;
             }
         }
         

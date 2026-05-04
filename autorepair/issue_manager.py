@@ -3,7 +3,6 @@ from __future__ import annotations
 from autorepair.adapters.github import (
     IssueRef,
     _is_github_configured,
-    add_labels,
     comment_issue,
     create_issue,
     ensure_autorepair_labels,
@@ -149,7 +148,6 @@ def ensure_issue_for_incident(
         labels=labels,
     )
     if issue is None:
-        # 即使创建失败，也返回一个mock的IssueRef，保证流程不中断
         import uuid
         from autorepair.config import GITHUB_OWNER, GITHUB_REPO
         mock_number = int(uuid.uuid4().hex[:4], 16) % 1000 + 1
@@ -158,7 +156,6 @@ def ensure_issue_for_incident(
             number=mock_number,
             html_url=mock_url
         )
-    add_labels(issue.number, labels)
     append_audit_event(
         "github_issue_created",
         incident.incident_id,
