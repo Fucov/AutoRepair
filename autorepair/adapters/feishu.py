@@ -468,17 +468,23 @@ def send_manual_intervention_card(
     incident_id: str,
     issue_number: int,
     error_message: str,
+    issue_url: str = "",
+    report_url: str = "",
 ) -> Optional[Dict]:
     """
     兼容executor.py和sync_pr_status_once.py中的调用接口
     """
+    from autorepair.config import GITHUB_OWNER, GITHUB_REPO
+    if not issue_url and issue_number and GITHUB_OWNER and GITHUB_REPO:
+        issue_url = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/issues/{issue_number}"
     return send_manual_intervention(
         incident_id=incident_id,
         service_name="demo_service",
         reason_brief="修复失败，需要人工介入",
         evidence_brief=error_message[:200] + "..." if len(error_message) > 200 else error_message,
         suggested_action=f"请查看Issue #{issue_number}并进行处理",
-        issue_url=f"https://github.com/issues/{issue_number}" if issue_number else "",
+        issue_url=issue_url,
+        report_url=report_url,
     )
 
 

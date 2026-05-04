@@ -8,29 +8,30 @@ from autorepair.repair.executor import execute_next_repair_job
 
 
 def main() -> int:
-    # 检查是否已有修复任务在运行
     if not scheduler.acquire_repair_lock():
         print("repair worker already running")
         return 0
-    
+
     try:
         result = execute_next_repair_job()
-    
-    if not result.success:
-        print(f"Repair job failed: {result.error}")
-        return 1
-    
-    if result.error:
-        print(result.error)
-        return 0
-    
+
+        if not result.success:
+            print(f"Repair job failed: {result.error}")
+            return 1
+
+        if result.error:
+            print(result.error)
+            return 0
+
         if result.job:
             print(f"Repair job completed successfully: {result.job.job_id}")
             if result.job.pr_url:
                 print(f"PR created: {result.job.pr_url}")
-            return 0
-        
+
         return 0
+    except Exception as e:
+        print(f"Script error: {e}")
+        return 2
     finally:
         scheduler.release_repair_lock()
 

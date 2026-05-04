@@ -553,15 +553,25 @@
                 const data = await res.json();
                 
                 if (data.events && data.events.length > 0) {
+                    const refreshTriggers = new Set([
+                        'pipeline_completed', 'pipeline_failed', 'auto_repair_finished',
+                        'incident_detected', 'incident_updated', 'issue_created',
+                        'repair_job_created', 'repair_completed', 'repair_failed',
+                        'pr_created', 'initial_scan_finished'
+                    ]);
+                    let shouldRefresh = false;
                     data.events.forEach(event => {
                         addEventToStream(event);
                         if (event.type === 'watchdog_started' || event.type === 'watchdog_stopped') {
                             pollWatchdogStatus();
                         }
-                        if (event.type === 'pipeline_completed' || event.type === 'pipeline_failed' || event.type === 'auto_repair_finished') {
-                            loadData();
+                        if (refreshTriggers.has(event.type)) {
+                            shouldRefresh = true;
                         }
                     });
+                    if (shouldRefresh) {
+                        loadData();
+                    }
                     lastEventId = data.last_event_id;
                 }
                 

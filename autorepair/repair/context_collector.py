@@ -56,9 +56,19 @@ _TRACEBACK_CODE_RE = re.compile(r"^\s{4}.+$", re.MULTILINE)
 
 
 def _parse_traceback(raw: str, worktree: Path) -> TracebackInfo:
+    if not raw or not raw.strip():
+        return TracebackInfo(
+            error_type="UnknownError",
+            error_message="",
+            frames=[],
+            project_files=[],
+            suspected_file=None,
+            suspected_line=None,
+        )
+
     frames: list[TracebackFrame] = []
     project_files: list[str] = []
-    lines = raw.splitlines()
+    lines = list(raw.splitlines())
     worktree_str = str(worktree.resolve())
 
     i = 0
@@ -98,7 +108,7 @@ def _parse_traceback(raw: str, worktree: Path) -> TracebackInfo:
     suspected_file = project_files[0] if project_files else None
     suspected_line = None
     if frames:
-        for frame in reversed(frame for frame in frames if frame.file_path):
+        for frame in reversed([frame for frame in frames if frame.file_path]):
             try:
                 resolved = Path(frame.file_path).resolve()
                 if str(resolved).startswith(worktree_str):

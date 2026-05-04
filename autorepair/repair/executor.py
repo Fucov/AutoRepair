@@ -5,13 +5,16 @@ import logging
 from pathlib import Path
 from typing import Set
 from pydantic import BaseModel
-from autorepair.adapters.llm_client import LLMClient as ArkClient
+from autorepair.adapters.llm_client import LLMClient
+from autorepair.repair_agent.context import build_repair_agent_context
+from autorepair.repair_agent.loop import MiniRepairAgent
+from autorepair.repair_agent.playbooks import try_apply_known_playbook
+from autorepair.repair_agent.tools import MiniRepairTools
 from autorepair.adapters.github import (
     find_open_pr_for_branch,
     create_pull_request,
     comment_issue,
     replace_autorepair_status_label,
-    add_labels,
 )
 from autorepair.adapters.feishu import send_manual_intervention_card, send_fix_pr_ready_card
 from autorepair.audit_store import append_audit_event
@@ -31,17 +34,12 @@ from autorepair.repair.job_store import (
     find_jobs_by_issue_number,
     load_repair_jobs,
 )
-from autorepair.repair.patch_applier import apply_patch_plan
-from autorepair.repair.patch_prompt import build_patch_prompt, build_retry_prompt
-from autorepair.repair.patch_schema import PatchPlan
 from autorepair.repair.repo_lock import acquire_repo_lock
 from autorepair.repair.schemas import RepairJobStatus, RepairJob
-from autorepair.repair.test_runner import run_command_in_worktree
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
-TEMPERATURES = [0.1, 0.2, 0.3]
 
 FAILURE_REASON_MAP = {
     "context_failed": "无法从 traceback 中解析出错误文件路径，请检查日志格式",
@@ -181,173 +179,50 @@ def execute_next_repair_job() -> RepairExecutionResult:
                     failure_type=failure_type, failure_report=failure_report,
                 )
 
-            ark_client = ArkClient()
-            messages = build_patch_prompt(context)
-            patch_plan = None
-            test_result = None
-            last_error = ""
-            last_plan_json = ""
+            agent_context = build_repair_agent_context(job, incident)
+            agent_tools = MiniRepairTools(job.worktree_path)
 
-            for attempt in range(MAX_RETRIES):
-                temp = TEMPERATURES[min(attempt, len(TEMPERATURES) - 1)]
-                try:
-                    patch_plan_dict = ark_client.chat_json(messages, temperature=temp)
-                    patch_plan = PatchPlan.model_validate(patch_plan_dict)
-                    last_plan_json = patch_plan.model_dump_json()
+            playbook_result = try_apply_known_playbook(agent_context, agent_tools)
+            agent_result = playbook_result
 
-                    append_audit_event(
-                        "patch_plan_generated",
-                        job.incident_id,
-                        {
-                            "job_id": job.job_id,
-                            "attempt": attempt + 1,
-                            "temperature": temp,
-                            "summary": patch_plan.summary,
-                            "files": [f.path for f in patch_plan.files],
-                            "confidence": patch_plan.confidence,
-                        },
-                    )
+            if agent_result is None:
+                agent = MiniRepairAgent(llm_client=LLMClient())
+                agent_result = agent.run(agent_context)
 
-                    push_event("patch_plan_generated", {
-                        "job_id": job.job_id,
-                        "incident_id": job.incident_id,
-                        "attempt": attempt + 1,
-                        "temperature": temp,
-                        "summary": patch_plan.summary,
-                        "files": [f.path for f in patch_plan.files],
-                        "confidence": patch_plan.confidence,
-                        "message": f"补丁方案生成完成（第{attempt + 1}次尝试）",
-                    })
-
-                    if not patch_plan.files:
-                        last_error = f"LLM 认为无法修复: {patch_plan.summary}"
-                        messages = build_retry_prompt(messages, last_plan_json, last_error)
-                        continue
-
-                    apply_result = apply_patch_plan(patch_plan, job.worktree_path)
-                    if not apply_result.ok:
-                        last_error = f"Patch apply failed: {apply_result.error}"
-                        messages = build_retry_prompt(messages, last_plan_json, last_error)
-                        continue
-
-                    append_audit_event(
-                        "patch_applied",
-                        job.incident_id,
-                        {"job_id": job.job_id, "changed_files": apply_result.changed_files},
-                    )
-
-                    push_event("patch_applied", {
-                        "job_id": job.job_id,
-                        "incident_id": job.incident_id,
-                        "changed_files": apply_result.changed_files,
-                        "message": "补丁已应用到代码",
-                    })
-
-                    test_result = run_command_in_worktree(context.target_test_command, job.worktree_path)
-                    if test_result.returncode == 0:
-                        break
-
-                    last_error = f"Target test failed (attempt {attempt + 1}):\nstdout:\n{test_result.stdout[-500:]}\nstderr:\n{test_result.stderr[-500:]}"
-                    messages = build_retry_prompt(messages, last_plan_json, last_error)
-
-                except Exception as e:
-                    last_error = str(e)
-                    if attempt == MAX_RETRIES - 1:
-                        raise
-                    if last_plan_json:
-                        messages = build_retry_prompt(messages, last_plan_json, last_error)
-                    continue
-
-            if patch_plan is None:
-                failure_type = "llm_error"
-                failure_report = _build_failure_report(failure_type, last_error, MAX_RETRIES)
-                _handle_failure(job, failure_type, failure_report, last_error)
-                return RepairExecutionResult(
-                    success=False, job=job, error=last_error,
-                    failure_type=failure_type, failure_report=failure_report,
-                )
-
-            if not patch_plan.files:
-                failure_type = "context_failed"
-                failure_report = _build_failure_report(
-                    failure_type,
-                    f"经过 {MAX_RETRIES} 次尝试，LLM 仍认为无法修复: {patch_plan.summary}",
-                    MAX_RETRIES,
-                )
-                _handle_failure(job, failure_type, failure_report, failure_report)
-                return RepairExecutionResult(
-                    success=False, job=job, error=failure_report,
-                    failure_type=failure_type, failure_report=failure_report,
-                )
-
-            if not test_result or test_result.returncode != 0:
-                failure_type = "target_test_failed"
-                error_detail = last_error
-                failure_report = _build_failure_report(failure_type, error_detail, MAX_RETRIES)
-                _handle_failure(job, failure_type, failure_report, error_detail)
-                return RepairExecutionResult(
-                    success=False, job=job, error=error_detail,
-                    failure_type=failure_type, failure_report=failure_report,
-                )
-
-            full_test_result = run_command_in_worktree(context.full_test_command, job.worktree_path)
-            if full_test_result.returncode != 0:
-                failure_type = "full_test_failed"
-                error_detail = f"Full test suite failed:\nstdout:\n{full_test_result.stdout[-500:]}\nstderr:\n{full_test_result.stderr[-500:]}"
-                failure_report = _build_failure_report(failure_type, error_detail, MAX_RETRIES)
-                _handle_failure(job, failure_type, failure_report, error_detail)
-                return RepairExecutionResult(
-                    success=False, job=job, error=error_detail,
-                    failure_type=failure_type, failure_report=failure_report,
-                )
-
-            diff = get_git_diff(job.worktree_path)
-            if not diff.strip():
-                failure_type = "patch_apply_failed"
-                error_detail = "No code changes to commit"
-                failure_report = _build_failure_report(failure_type, error_detail, MAX_RETRIES)
-                _handle_failure(job, failure_type, failure_report, error_detail)
-                return RepairExecutionResult(
-                    success=False, job=job, error=error_detail,
-                    failure_type=failure_type, failure_report=failure_report,
-                )
-
-            commit_message = f"""fix: {patch_plan.summary[:80]}
-
-Incident: {job.incident_id}
-Issue: #{job.issue_number}
-Test: {context.target_test_command}
-"""
-            commit_sha = git_commit_all(job.worktree_path, commit_message)
             append_audit_event(
-                "code_committed",
+                "agent_repair_completed",
                 job.incident_id,
-                {"job_id": job.job_id, "commit_sha": commit_sha},
+                {
+                    "job_id": job.job_id,
+                    "status": agent_result.status,
+                    "summary": agent_result.summary,
+                },
             )
 
-            push_event("code_committed", {
+            push_event("agent_repair_completed", {
                 "job_id": job.job_id,
                 "incident_id": job.incident_id,
-                "commit_sha": commit_sha,
-                "message": "代码已提交到修复分支",
+                "status": agent_result.status,
+                "summary": agent_result.summary,
+                "message": f"Agent 修复完成: {agent_result.status}",
             })
 
-            git_push_branch(job.worktree_path, job.repair_branch)
-            append_audit_event(
-                "branch_pushed",
-                job.incident_id,
-                {"job_id": job.job_id, "branch": job.repair_branch},
-            )
+            if agent_result.status == "fixed":
+                diff = agent_result.diff or get_git_diff(job.worktree_path)
+                if not diff or not diff.strip():
+                    diff = get_git_diff(job.worktree_path)
 
-            push_event("branch_pushed", {
-                "job_id": job.job_id,
-                "incident_id": job.incident_id,
-                "branch": job.repair_branch,
-                "message": "修复分支已推送到远程",
-            })
+                commit_message = f"fix: {agent_result.summary[:80]}\n\nIncident: {job.incident_id}\nIssue: #{job.issue_number}"
+                commit_sha = git_commit_all(job.worktree_path, commit_message)
+                append_audit_event("code_committed", job.incident_id, {"job_id": job.job_id, "commit_sha": commit_sha})
+                push_event("code_committed", {"job_id": job.job_id, "incident_id": job.incident_id, "commit_sha": commit_sha, "message": "代码已提交到修复分支"})
 
-            pr_title = f"[AutoRepair] {patch_plan.summary[:60]}"
-            pr_body = f"""## AutoRepair Fix
+                git_push_branch(job.worktree_path, job.repair_branch)
+                append_audit_event("branch_pushed", job.incident_id, {"job_id": job.job_id, "branch": job.repair_branch})
+                push_event("branch_pushed", {"job_id": job.job_id, "incident_id": job.incident_id, "branch": job.repair_branch, "message": "修复分支已推送到远程"})
+
+                pr_title = f"[AutoRepair] {agent_result.summary[:60]}"
+                pr_body = f"""## AutoRepair Fix
 Incident ID: {job.incident_id}
 Related Issue: #{job.issue_number}
 
@@ -355,107 +230,93 @@ Related Issue: #{job.issue_number}
 {context.error_type}: {context.error_message}
 
 ### Fix Summary
-{patch_plan.summary}
-
-### Tests
-- Target test: {context.target_test_command}
-- Full test suite: {context.full_test_command}
-
-### Risk Level
-{patch_plan.risk_level}
-### Confidence
-{patch_plan.confidence}
+{agent_result.summary}
 
 ### Diff
 ```diff
-{diff[:3000]}
+{(diff or '')[:3000]}
 ```
 """
-            pr = create_pull_request(pr_title, pr_body, job.repair_branch, job.base_branch)
-            if not pr:
-                failure_type = "pr_create_failed"
-                error_detail = "Failed to create pull request"
-                failure_report = _build_failure_report(failure_type, error_detail, MAX_RETRIES)
+                pr = create_pull_request(pr_title, pr_body, job.repair_branch, job.base_branch)
+                if not pr:
+                    failure_type = "pr_create_failed"
+                    error_detail = "Failed to create pull request"
+                    failure_report = _build_failure_report(failure_type, error_detail, MAX_RETRIES)
+                    update_repair_job(job.job_id, status=RepairJobStatus.human_required, last_error=error_detail)
+                    push_event("repair_failed", {"job_id": job.job_id, "incident_id": job.incident_id, "issue_number": job.issue_number, "error": error_detail, "failure_type": failure_type, "message": f"修复失败: {FAILURE_REASON_MAP[failure_type]}"})
+                    return RepairExecutionResult(success=False, job=job, error=error_detail, failure_type=failure_type, failure_report=failure_report)
+
                 update_repair_job(
                     job.job_id,
-                    status=RepairJobStatus.human_required,
-                    last_error=error_detail,
+                    status=RepairJobStatus.pr_created,
+                    pr_number=pr.number,
+                    pr_url=pr.html_url,
+                    last_error=None,
                 )
-                push_event("repair_failed", {
+
+                push_event("pr_created", {
                     "job_id": job.job_id,
                     "incident_id": job.incident_id,
                     "issue_number": job.issue_number,
-                    "error": error_detail,
-                    "failure_type": failure_type,
-                    "message": f"修复失败: {FAILURE_REASON_MAP[failure_type]}",
+                    "pr_number": pr.number,
+                    "pr_url": pr.html_url,
+                    "message": f"PR #{pr.number} 创建成功",
                 })
+
+                replace_autorepair_status_label(job.issue_number, "autorepair:pr-ready")
+
+                comment_body = f"""✅ AutoRepair 已生成修复PR：[#{pr.number}]({pr.html_url})
+修复摘要：{agent_result.summary}
+测试已通过，请人工Review。
+"""
+                comment_issue(job.issue_number, comment_body)
+
+                send_fix_pr_ready_card(
+                    incident_id=job.incident_id,
+                    issue_number=job.issue_number,
+                    pr_url=pr.html_url,
+                    pr_title=pr_title,
+                    fix_summary=agent_result.summary,
+                    risk_level="low",
+                )
+
+                push_event("card_sent", {
+                    "job_id": job.job_id,
+                    "incident_id": job.incident_id,
+                    "card_type": "fix_pr_ready",
+                    "message": "PR修复完成卡片已发送到飞书",
+                })
+
+                append_audit_event(
+                    "pr_created",
+                    job.incident_id,
+                    {
+                        "job_id": job.job_id,
+                        "pr_number": pr.number,
+                        "pr_url": pr.html_url,
+                    },
+                )
+
+                push_event("repair_completed", {
+                    "job_id": job.job_id,
+                    "incident_id": job.incident_id,
+                    "issue_number": job.issue_number,
+                    "pr_number": pr.number,
+                    "pr_url": pr.html_url,
+                    "message": f"修复完成！PR #{pr.number} 已创建",
+                })
+
+                return RepairExecutionResult(success=True, job=job)
+
+            else:
+                failure_type = "target_test_failed" if "test" in agent_result.status else agent_result.status
+                error_detail = agent_result.summary
+                failure_report = _build_failure_report(failure_type, error_detail, MAX_RETRIES)
+                _handle_failure(job, failure_type, failure_report, error_detail)
                 return RepairExecutionResult(
                     success=False, job=job, error=error_detail,
                     failure_type=failure_type, failure_report=failure_report,
                 )
-
-            update_repair_job(
-                job.job_id,
-                status=RepairJobStatus.pr_created,
-                pr_number=pr.number,
-                pr_url=pr.html_url,
-                last_error=None,
-            )
-
-            push_event("pr_created", {
-                "job_id": job.job_id,
-                "incident_id": job.incident_id,
-                "issue_number": job.issue_number,
-                "pr_number": pr.number,
-                "pr_url": pr.html_url,
-                "message": f"PR #{pr.number} 创建成功",
-            })
-
-            replace_autorepair_status_label(job.issue_number, "autorepair:pr-ready")
-            add_labels(job.issue_number, [f"risk:{patch_plan.risk_level}"])
-
-            comment_body = f"""✅ AutoRepair 已生成修复PR：[#{pr.number}]({pr.html_url})
-修复摘要：{patch_plan.summary}
-测试已通过，请人工Review。
-"""
-            comment_issue(job.issue_number, comment_body)
-
-            send_fix_pr_ready_card(
-                incident_id=job.incident_id,
-                issue_number=job.issue_number,
-                pr_url=pr.html_url,
-                pr_title=pr_title,
-                fix_summary=patch_plan.summary,
-                risk_level=patch_plan.risk_level,
-            )
-
-            push_event("card_sent", {
-                "job_id": job.job_id,
-                "incident_id": job.incident_id,
-                "card_type": "fix_pr_ready",
-                "message": "PR修复完成卡片已发送到飞书",
-            })
-
-            append_audit_event(
-                "pr_created",
-                job.incident_id,
-                {
-                    "job_id": job.job_id,
-                    "pr_number": pr.number,
-                    "pr_url": pr.html_url,
-                },
-            )
-
-            push_event("repair_completed", {
-                "job_id": job.job_id,
-                "incident_id": job.incident_id,
-                "issue_number": job.issue_number,
-                "pr_number": pr.number,
-                "pr_url": pr.html_url,
-                "message": f"修复完成！PR #{pr.number} 已创建",
-            })
-
-            return RepairExecutionResult(success=True, job=job)
 
         except Exception as e:
             error_msg = str(e)
@@ -512,6 +373,8 @@ def _handle_failure(
         incident_id=job.incident_id,
         issue_number=job.issue_number,
         error_message=f"[{failure_type}] {error_msg[:200]}",
+        issue_url=job.issue_url or "",
+        report_url=job.report_url or "",
     )
 
     append_audit_event(

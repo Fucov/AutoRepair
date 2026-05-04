@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from autorepair.repair_agent.schemas import RepairAgentContext
+
+
+def build_repair_agent_context(
+    job,
+    incident,
+    issue: object | None = None,
+    service: object | None = None,
+) -> RepairAgentContext:
+    target_test = getattr(service, "agent_target_test_command", None) if service else None
+    full_test = getattr(service, "test_command", "pytest -q") if service else "pytest -q"
+
+    issue_number = getattr(issue, "number", None) if issue else getattr(incident, "issue_number", None)
+
+    worktree_path = getattr(job, "worktree_path", "")
+    if worktree_path:
+        worktree_path = worktree_path.replace("\\", "/")
+
+    suspected_file = getattr(incident, "suspected_file", None) or getattr(job, "suspected_file", None)
+
+    return RepairAgentContext(
+        job_id=getattr(job, "job_id", ""),
+        incident_id=getattr(incident, "incident_id", ""),
+        issue_number=issue_number,
+        service_name=getattr(incident, "service_name", "unknown"),
+        worktree_path=worktree_path,
+        repo_path=getattr(incident, "repo_path", ""),
+        error_type=getattr(incident, "error_type", None),
+        error_message=getattr(incident, "error_message", None),
+        suspected_file=suspected_file,
+        line_no=getattr(incident, "line_no", None),
+        raw_traceback=getattr(incident, "raw_traceback", None),
+        issue_body=getattr(incident, "issue_body", None),
+        target_test_command=target_test,
+        full_test_command=full_test,
+    )
