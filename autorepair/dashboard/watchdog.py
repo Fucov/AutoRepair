@@ -322,12 +322,49 @@ def _initial_scan():
     try:
         from autorepair.service_registry import get_default_service
         from autorepair.dashboard.api import push_event
+        from autorepair.watch_state import save_watch_state, DEFAULT_WATCH_STATE_PATH
+        from autorepair.repair.job_store import load_repair_jobs
+        from autorepair.repair.schemas import RepairJobStatus
         service = get_default_service()
         push_event("initial_scan_started", {"message": "启动时初始扫描已触发"})
+        save_watch_state({}, DEFAULT_WATCH_STATE_PATH)
         _run_pipeline_on_new_incidents()
+        _execute_queued_jobs()
         push_event("initial_scan_finished", {"message": "启动时初始扫描完成"})
     except Exception as e:
         logger.error(f"初始扫描失败: {e}", exc_info=True)
+
+
+def _execute_queued_jobs():
+    from autorepair.repair.job_store import load_repair_jobs
+    from autorepair.repair.schemas import RepairJobStatus
+    from autorepair.repair.executor import execute_next_repair_job
+    from autorepair.dashboard.api import push_event
+
+    for _ in range(10):
+        queued = [j for j in load_repair_jobs() if j.status == RepairJobStatus.queued]
+        if not queued:
+            break
+        try:
+            result = execute_next_repair_job()
+            if result.success and result.job:
+                push_event("auto_repair_finished", {
+                    "job_id": result.job.job_id,
+                    "pr_url": result.job.pr_url,
+                    "message": f"自动修复完成: {result.job.job_id}",
+                })
+            elif not result.success and result.job:
+                push_event("auto_repair_finished", {
+                    "job_id": result.job.job_id,
+                    "error": result.error,
+                    "failure_type": result.failure_type,
+                    "message": f"自动修复失败: {result.error[:100] if result.error else 'unknown'}",
+                })
+            elif not result.success:
+                break
+        except Exception as e:
+            logger.error(f"执行修复任务失败: {e}", exc_info=True)
+            break
 
 
 def stop_watchdog():

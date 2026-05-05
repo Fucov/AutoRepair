@@ -62,10 +62,11 @@ def scan_latest_log_once(log_path: Optional[str] = None) -> Optional[Incident]:
     return incident
 
 
-def scan_new_log_events_once(log_path: Optional[str] = None) -> List[Tuple[Incident, str]]:
+def scan_new_log_events_once(log_path: Optional[str] = None, service: Optional[TargetService] = None) -> List[Tuple[Incident, str]]:
     """
     增量扫描日志中的新增错误事件，支持重复错误聚合
     :param log_path: 可选自定义日志路径
+    :param service: 可选目标服务配置，传入时会设置 service_id/service_name
     :return: 列表，每个元素是(Incident对象, action: "created"|"updated")
     """
     log_path = log_path or LOG_PATH
@@ -109,19 +110,21 @@ def scan_new_log_events_once(log_path: Optional[str] = None) -> List[Tuple[Incid
             created_at = now.isoformat()
             
             # 创建Incident对象
+            service_name = service.name if service else "demo_service"
             incident = Incident(
                 incident_id=incident_id,
                 source="local_log",
-                service="demo_service",
+                service=service_name,
                 status="NEW",
                 error_summary=error_summary,
                 raw_traceback=traceback,
                 created_at=created_at,
                 updated_at=created_at,
-                source_ref=source_ref
+                source_ref=source_ref,
+                service_id=service.service_id if service else None,
+                service_name=service_name,
             )
             
-            # 新增或更新Incident
             final_incident, action = upsert_incident_by_fingerprint(incident, DEFAULT_INCIDENT_PATH)
             results.append((final_incident, action))
             
@@ -156,15 +159,9 @@ def scan_service_logs_once(service: TargetService) -> List[Tuple[Incident, str]]
     results = []
     
     for log_path in service.log_paths:
-        # 使用现有scan_new_log_events_once处理每个日志文件
-        log_results = scan_new_log_events_once(log_path)
+        log_results = scan_new_log_events_once(log_path, service=service)
         
-        # 更新Incident的service_id和service_name
         for incident, action in log_results:
-            incident.service_id = service.service_id
-            incident.service_name = service.name
-            incident.service = service.name  # 保持兼容旧字段
-            
             results.append((incident, action))
     
     return results

@@ -9,6 +9,7 @@ from autorepair.adapters.llm_client import LLMClient
 from autorepair.repair_agent.context import build_repair_agent_context
 from autorepair.repair_agent.loop import MiniRepairAgent
 from autorepair.repair_agent.playbooks import try_apply_known_playbook
+from autorepair.repair_agent.schemas import RepairAgentResult
 from autorepair.repair_agent.tools import MiniRepairTools
 from autorepair.adapters.github import (
     find_open_pr_for_branch,
@@ -322,7 +323,11 @@ Related Issue: #{job.issue_number}
                 failure_type = "target_test_failed" if "test" in agent_result.status else agent_result.status
                 error_detail = agent_result.summary
                 failure_report = _build_failure_report(failure_type, error_detail, MAX_RETRIES)
-                _handle_failure(job, failure_type, failure_report, error_detail)
+                try:
+                    report_url = _build_repair_attempt_report(job, failure_type, error_detail, agent_result)
+                except Exception:
+                    report_url = None
+                _handle_failure(job, failure_type, failure_report, error_detail, repair_report_url=report_url)
                 return RepairExecutionResult(
                     success=False, job=job, error=error_detail,
                     failure_type=failure_type, failure_report=failure_report,
@@ -332,7 +337,11 @@ Related Issue: #{job.issue_number}
             error_msg = str(e)
             failure_type = _classify_failure(error_msg)
             failure_report = _build_failure_report(failure_type, error_msg, MAX_RETRIES)
-            _handle_failure(job, failure_type, failure_report, error_msg)
+            try:
+                report_url = _build_repair_attempt_report(job, failure_type, error_msg)
+            except Exception:
+                report_url = None
+            _handle_failure(job, failure_type, failure_report, error_msg, repair_report_url=report_url)
             try:
                 remove_repair_worktree(job.worktree_path)
             except Exception:
@@ -343,11 +352,83 @@ Related Issue: #{job.issue_number}
             )
 
 
+def _build_repair_attempt_report(
+    job: RepairJob,
+    failure_type: str,
+    error_msg: str,
+    agent_result: RepairAgentResult | None = None,
+    agent_steps: list | None = None,
+) -> str:
+    from autorepair.reports.repair_plan_builder import render_repair_plan_plaintext
+    from autorepair.reports.schemas import RepairPlanData
+    from autorepair.adapters.note_report import NoteReportClient
+    import uuid
+
+    plan = RepairPlanData(
+        plan_id=f"REPORT-{uuid.uuid4().hex[:8]}",
+        incident_id=job.incident_id,
+        issue_number=job.issue_number,
+        service_name=job.service_name or "unknown",
+        error_type=failure_type,
+        error_message=error_msg[:300],
+        suspected_file=None,
+        suspected_line=None,
+        suspected_function=None,
+        root_cause_analysis=f"修复失败，失败类型: {failure_type}\n失败原因: {FAILURE_REASON_MAP.get(failure_type, error_msg[:200])}",
+        fix_steps=_build_fix_steps_text(agent_result, agent_steps),
+        affected_files=agent_result.changed_files if agent_result else [],
+        test_strategy="修复尝试失败，需要人工介入",
+        risk_level="high",
+        estimated_changes="未知",
+        rollback_plan="直接关闭修复分支即可回退",
+    )
+    content = render_repair_plan_plaintext(plan)
+    title = f"修复尝试报告 - {job.incident_id} - {failure_type}"
+    note_client = NoteReportClient()
+    ref = note_client.create_report(title, content)
+    return ref.url
+
+
+def _build_fix_steps_text(
+    agent_result: RepairAgentResult | None,
+    agent_steps: list | None,
+) -> list[str]:
+    steps = []
+    if agent_result:
+        steps.append(f"修复结果: {agent_result.status}")
+        steps.append(f"修复摘要: {agent_result.summary}")
+        if agent_result.target_test_passed:
+            steps.append("目标测试: 通过")
+        else:
+            steps.append("目标测试: 失败")
+        if agent_result.full_test_passed:
+            steps.append("回归测试: 通过")
+        else:
+            steps.append("回归测试: 失败")
+        if agent_result.diff:
+            steps.append(f"代码变更:\n{agent_result.diff[:500]}")
+    if agent_steps:
+        for step in agent_steps:
+            tc = step.tool_call
+            tr = step.tool_result
+            if tc:
+                step_desc = f"步骤{step.step_index}: 调用 {tc.tool}"
+                if tr:
+                    step_desc += f" -> {'成功' if tr.ok else '失败'}"
+                    if tr.error:
+                        step_desc += f" ({tr.error[:100]})"
+                steps.append(step_desc)
+    if not steps:
+        steps.append("未能生成修复步骤详情")
+    return steps
+
+
 def _handle_failure(
     job: RepairJob,
     failure_type: str,
     failure_report: str,
     error_msg: str,
+    repair_report_url: str | None = None,
 ) -> None:
     status = RepairJobStatus.failed
     if "test" in failure_type:
@@ -384,7 +465,7 @@ def _handle_failure(
         issue_number=job.issue_number,
         error_message=f"[{failure_type}] {error_msg[:200]}",
         issue_url=job.issue_url or "",
-        report_url=job.report_url or "",
+        report_url=repair_report_url or "",
     )
 
     append_audit_event(

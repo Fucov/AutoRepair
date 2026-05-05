@@ -24,7 +24,7 @@ def build_repair_agent_context(
         job_id=getattr(job, "job_id", ""),
         incident_id=getattr(incident, "incident_id", ""),
         issue_number=issue_number,
-        service_name=getattr(incident, "service_name", "unknown"),
+        service_name=getattr(incident, "service_name", None) or getattr(incident, "service", "unknown") or "unknown",
         worktree_path=worktree_path,
         repo_path=getattr(incident, "repo_path", ""),
         error_type=getattr(incident, "error_type", None),
