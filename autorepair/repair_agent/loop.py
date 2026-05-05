@@ -163,7 +163,7 @@ class MiniRepairAgent:
         return result
 
     def _call_llm(self, messages: list[dict[str, str]]) -> ToolCall:
-        resp = self.llm.chat_json(messages)
+        resp = self.llm.chat_json_flexible(messages)
         if isinstance(resp, dict):
             tool = resp.get("tool", "finish")
             args = resp.get("args", {})

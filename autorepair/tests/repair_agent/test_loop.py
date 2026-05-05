@@ -24,7 +24,7 @@ def test_agent_fixed_flow(tmp_path):
     (tmp_path / "src" / "app.py").write_text("def foo():\n    return 1\n")
 
     mock_llm = MagicMock()
-    mock_llm.chat_json.side_effect = [
+    mock_llm.chat_json_flexible.side_effect = [
         {"tool": "read_file", "args": {"path": "src/app.py"}},
         {"tool": "apply_replace", "args": {"path": "src/app.py", "old": "return 1", "new": "return 2"}},
         {"tool": "finish", "args": {"status": "fixed", "summary": "fixed"}},
@@ -64,7 +64,7 @@ def test_agent_retry_after_test_fail(tmp_path):
     (tmp_path / "src" / "app.py").write_text("x = 1\n")
 
     mock_llm = MagicMock()
-    mock_llm.chat_json.side_effect = [
+    mock_llm.chat_json_flexible.side_effect = [
         {"tool": "apply_replace", "args": {"path": "src/app.py", "old": "x = 1", "new": "x = 2"}},
         {"tool": "run_tests", "args": {"command": "pytest -q"}},
         {"tool": "apply_replace", "args": {"path": "src/app.py", "old": "x = 2", "new": "x = 3"}},
@@ -102,7 +102,7 @@ def test_agent_max_retries_returns_test_failed(tmp_path):
     (tmp_path / "src" / "app.py").write_text("x = 1\n")
 
     mock_llm = MagicMock()
-    mock_llm.chat_json.return_value = {"tool": "run_tests", "args": {"command": "pytest -q"}}
+    mock_llm.chat_json_flexible.return_value = {"tool": "run_tests", "args": {"command": "pytest -q"}}
 
     agent = MiniRepairAgent(mock_llm, max_steps=10, max_retries=2)
     ctx = _make_context(tmp_path)
@@ -118,7 +118,7 @@ def test_agent_needs_human(tmp_path):
     (tmp_path / "src" / "app.py").write_text("x = 1\n")
 
     mock_llm = MagicMock()
-    mock_llm.chat_json.return_value = {"tool": "finish", "args": {"status": "needs_human", "summary": "too complex"}}
+    mock_llm.chat_json_flexible.return_value = {"tool": "finish", "args": {"status": "needs_human", "summary": "too complex"}}
 
     agent = MiniRepairAgent(mock_llm)
     ctx = _make_context(tmp_path)
@@ -131,7 +131,7 @@ def test_agent_needs_human(tmp_path):
 
 def test_agent_error_no_crash(tmp_path):
     mock_llm = MagicMock()
-    mock_llm.chat_json.side_effect = RuntimeError("API down")
+    mock_llm.chat_json_flexible.side_effect = RuntimeError("API down")
 
     agent = MiniRepairAgent(mock_llm)
     ctx = _make_context(tmp_path)

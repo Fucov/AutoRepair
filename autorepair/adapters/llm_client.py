@@ -30,16 +30,60 @@ class LLMClient:
             base_url=self.config.base_url,
         )
     
+    @staticmethod
+    def _extract_json_from_text(text: str) -> dict[str, Any] | None:
+        start = text.find("{")
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            c = text[i]
+            if escape:
+                escape = False
+                continue
+            if c == "\\":
+                escape = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        return None
+        return None
+
     def _extract_json_from_markdown(self, content: str) -> dict[str, Any]:
         json_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
         if json_match:
-            content = json_match.group(1)
-        
+            inner = json_match.group(1).strip()
+            try:
+                return json.loads(inner)
+            except json.JSONDecodeError:
+                pass
+
         try:
             return json.loads(content)
         except json.JSONDecodeError:
-            raise ValueError(f"Failed to parse JSON from response: {content[:200]}...")
-    
+            pass
+
+        extracted = self._extract_json_from_text(content)
+        if extracted is not None:
+            return extracted
+
+        raise ValueError(f"Failed to parse JSON from response: {content[:200]}...")
+
     def chat_json(self, messages: list[dict], model: str | None = None, temperature: float = 0.1) -> dict[str, Any]:
         try:
             response = self.client.chat.completions.create(
@@ -48,13 +92,15 @@ class LLMClient:
                 temperature=temperature,
                 response_format={"type": "json_object"},
             )
-            
+
             content = response.choices[0].message.content
             if not content:
                 raise ValueError("Empty response from LLM API")
-            
+
             return self._extract_json_from_markdown(content)
-            
+
+        except (ValueError, RuntimeError):
+            raise
         except openai.APIError as e:
             raise RuntimeError(f"LLM API error: {str(e)}") from e
         except openai.APIConnectionError as e:
@@ -67,6 +113,19 @@ class LLMClient:
             raise RuntimeError("LLM API rate limit exceeded") from e
         except Exception as e:
             raise RuntimeError(f"Unexpected error when calling LLM API: {str(e)}") from e
+
+    def chat_json_flexible(self, messages: list[dict], model: str | None = None, temperature: float = 0.1) -> dict[str, Any]:
+        try:
+            return self.chat_json(messages, model=model, temperature=temperature)
+        except (ValueError, RuntimeError):
+            pass
+
+        text = self.chat_text(messages, model=model, temperature=temperature)
+        extracted = self._extract_json_from_text(text)
+        if extracted is not None:
+            return extracted
+
+        raise ValueError(f"Failed to parse JSON from response: {text[:200]}...")
     
     def chat_text(self, messages: list[dict], model: str | None = None, temperature: float = 0.1) -> str:
         try:
