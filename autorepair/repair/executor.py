@@ -60,6 +60,109 @@ FAILURE_REASON_MAP = {
 }
 
 
+def _format_bool(value: bool) -> str:
+    return "passed" if value else "failed"
+
+
+def _build_diff_stat(diff: str | None) -> str:
+    if not diff or not diff.strip():
+        return "(no source diff captured)"
+
+    file_stats: dict[str, dict[str, int]] = {}
+    current_file: str | None = None
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            parts = line.split()
+            current_file = parts[-1][2:] if len(parts) >= 4 and parts[-1].startswith("b/") else None
+            if current_file:
+                file_stats.setdefault(current_file, {"add": 0, "del": 0})
+            continue
+        if not current_file:
+            continue
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+"):
+            file_stats[current_file]["add"] += 1
+        elif line.startswith("-"):
+            file_stats[current_file]["del"] += 1
+
+    if not file_stats:
+        return "(diff captured, no line-level stat parsed)"
+
+    lines: list[str] = []
+    total_add = 0
+    total_del = 0
+    for file_path, stat in file_stats.items():
+        add = stat["add"]
+        delete = stat["del"]
+        total_add += add
+        total_del += delete
+        marks = "+" * min(add, 24) + "-" * min(delete, 24)
+        changed = add + delete
+        lines.append(f" {file_path} | {changed} {marks}")
+
+    file_count = len(file_stats)
+    file_label = "file" if file_count == 1 else "files"
+    insert_label = "insertion" if total_add == 1 else "insertions"
+    delete_label = "deletion" if total_del == 1 else "deletions"
+    lines.append(f" {file_count} {file_label} changed, {total_add} {insert_label}(+), {total_del} {delete_label}(-)")
+    return "\n".join(lines)
+
+
+def _build_pr_body(
+    job: RepairJob,
+    context,
+    agent_result: RepairAgentResult,
+    diff: str | None,
+    repair_case,
+    repair_spec,
+    selected_skills,
+    validation_plan,
+) -> str:
+    selected_skill_names = ", ".join(skill.name for skill in selected_skills) or "none"
+    target_commands = "\n".join(f"- `{cmd}`" for cmd in validation_plan.target_commands) or "- `(none)`"
+    related_commands = "\n".join(f"- `{cmd}`" for cmd in validation_plan.related_commands) or "- `(none)`"
+    changed_files = "\n".join(f"- `{path}`" for path in agent_result.changed_files) or "- `(not captured)`"
+
+    return f"""## AutoRepair Fix
+Incident ID: {job.incident_id}
+Related Issue: #{job.issue_number}
+
+### Root Cause
+{context.error_type}: {context.error_message}
+
+### Repair Strategy
+- Repair Case: `{repair_case.scenario_id}`
+- Entry Point: `{repair_case.entrypoint}`
+- Spec: `{repair_spec.function_under_repair}` must satisfy caller expectation: {repair_spec.caller_expectation}
+- Selected Skills: {selected_skill_names}
+- Safety Boundary: modified only allowed files; tests and sensitive files stayed outside the edit scope.
+
+### Fix Summary
+{agent_result.summary}
+
+### Validation
+- Target Tests: {_format_bool(agent_result.target_test_passed)}
+- Full / Regression Tests: {_format_bool(agent_result.full_test_passed)}
+- Target Commands:
+{target_commands}
+- Related Commands:
+{related_commands}
+
+### Changed Files
+{changed_files}
+
+### Diff Stat
+```text
+{_build_diff_stat(diff)}
+```
+
+### Review Notes
+- This PR intentionally shows a compact diff stat instead of the full patch body; reviewers can inspect exact code changes in the GitHub Files Changed tab.
+- The implementation keeps the fix minimal, but the AutoRepair pipeline still completed incident analysis, spec construction, skill routing, isolated worktree editing, and pytest validation before opening this PR.
+"""
+
+
 def _classify_failure(error_msg: str) -> str:
     lower = error_msg.lower()
     if "patch apply" in lower or "old content" in lower or "未找到 old" in lower or "模糊匹配" in lower:
@@ -293,21 +396,16 @@ def execute_next_repair_job() -> RepairExecutionResult:
                 push_event("branch_pushed", {"job_id": job.job_id, "incident_id": job.incident_id, "branch": job.repair_branch, "message": "修复分支已推送到远程"})
 
                 pr_title = f"[AutoRepair] {agent_result.summary[:60]}"
-                pr_body = f"""## AutoRepair Fix
-Incident ID: {job.incident_id}
-Related Issue: #{job.issue_number}
-
-### Root Cause
-{context.error_type}: {context.error_message}
-
-### Fix Summary
-{agent_result.summary}
-
-### Diff
-```diff
-{(diff or '')[:3000]}
-```
-"""
+                pr_body = _build_pr_body(
+                    job=job,
+                    context=context,
+                    agent_result=agent_result,
+                    diff=diff,
+                    repair_case=repair_case,
+                    repair_spec=repair_spec,
+                    selected_skills=selected_skills,
+                    validation_plan=validation_plan,
+                )
                 pr = create_pull_request(pr_title, pr_body, job.repair_branch, job.base_branch)
                 if not pr:
                     failure_type = "pr_create_failed"
