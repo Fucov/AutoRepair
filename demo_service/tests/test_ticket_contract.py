@@ -72,3 +72,14 @@ def test_duplicate_idempotency_key_should_not_create_two_tickets():
     ticket_id_2 = resp2.json()["ticket_id"]
 
     assert ticket_id_1 == ticket_id_2
+
+
+@pytest.mark.agent_target
+def test_ticket_create_sla8_should_succeed():
+    """测试工单创建接口sla_hours=8时应正常返回，当前因NameError返回500"""
+    response = client.post(
+        "/ticket/create",
+        json={"priority": "P1", "sla_hours": 8},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"

@@ -82,6 +82,8 @@ def _infer_scenario_id(error_type: str, error_message: str, issue_body: str | No
         return "ticket-idempotency-duplicate"
     if "nameerror" in text and ("overdue" in text or "status" in text):
         return "ticket-nameerror-overdue"
+    if "nameerror" in text and "calculate_priority" in text:
+        return "app-ticket-create-nameerror"
     if "zerodivision" in text or ("total_amount" in text and "division" in text):
         return "order-zero-division"
     if "nonetype" in text and ("user" in text or "profile" in text):
@@ -95,6 +97,7 @@ def _infer_entrypoint(scenario_id: str | None) -> str | None:
         "ticket-timezone-sla": "POST /tickets/submit",
         "ticket-idempotency-duplicate": "POST /tickets/submit",
         "ticket-nameerror-overdue": "POST /tickets/submit",
+        "app-ticket-create-nameerror": "POST /ticket/create",
         "order-zero-division": "POST /orders/preview",
         "user-missing-profile": "GET /users/{user_id}/profile",
     }
@@ -106,6 +109,7 @@ def _infer_allowed_files(scenario_id: str | None, suspected_file: str) -> list[s
         "ticket-timezone-sla": ["demo_service/ticket_service.py"],
         "ticket-idempotency-duplicate": ["demo_service/ticket_service.py"],
         "ticket-nameerror-overdue": ["demo_service/ticket_service.py"],
+        "app-ticket-create-nameerror": ["demo_service/app.py"],
         "order-zero-division": ["demo_service/order_service.py"],
         "user-missing-profile": ["demo_service/service.py"],
     }
@@ -129,6 +133,9 @@ def _infer_target_tests(scenario_id: str | None) -> list[str]:
         ],
         "ticket-nameerror-overdue": [
             "demo_service/tests/test_ticket_contract.py::test_expired_sla_deadline_should_return_overdue"
+        ],
+        "app-ticket-create-nameerror": [
+            "demo_service/tests/test_ticket_contract.py::test_ticket_create_sla8_should_succeed"
         ],
         "order-zero-division": [
             "demo_service/tests/test_order_contract.py::test_zero_total_amount_should_return_400"
@@ -154,6 +161,11 @@ def _infer_regression_tests(scenario_id: str | None) -> list[str]:
             "demo_service/tests/test_ticket_contract.py::test_future_sla_deadline_should_return_open",
             "demo_service/tests/test_ticket_contract.py::test_duplicate_idempotency_key_should_not_create_two_tickets"
         ],
+        "app-ticket-create-nameerror": [
+            "demo_service/tests/test_ticket_contract.py::test_expired_sla_deadline_should_return_overdue",
+            "demo_service/tests/test_ticket_contract.py::test_future_sla_deadline_should_return_open",
+            "demo_service/tests/test_ticket_contract.py::test_duplicate_idempotency_key_should_not_create_two_tickets"
+        ],
         "order-zero-division": [
             "demo_service/tests/test_order_contract.py"
         ],
@@ -169,6 +181,7 @@ def _infer_expected_behavior(scenario_id: str | None) -> str:
         "ticket-timezone-sla": "submit_ticket 应正确处理带时区的 SLA deadline，naive/aware datetime 比较需统一",
         "ticket-idempotency-duplicate": "相同 idempotency_key 重复提交应返回同一 ticket_id，不创建重复工单",
         "ticket-nameerror-overdue": "过期工单应返回 overdue 状态，不应抛出 NameError",
+        "app-ticket-create-nameerror": "sla_hours=8 时工单创建接口应正常返回 success，不应抛出 NameError",
         "order-zero-division": "total_amount <= 0 应返回 400 Invalid order amount，不应抛 ZeroDivisionError",
         "user-missing-profile": "用户不存在时应返回 404 User not found，不应抛 TypeError",
     }

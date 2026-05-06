@@ -48,6 +48,15 @@ BUG_SCENARIOS: List[BugScenario] = [
         expected_error_type="BusinessLogicError",
         expected_behavior="同一个幂等键返回同一个工单，不重复创建",
         target_test_command="pytest -q demo_service/tests/test_ticket_contract.py::test_duplicate_idempotency_key_should_not_create_two_tickets -m agent_target"
+    ),
+    BugScenario(
+        scenario_id="app-ticket-create-nameerror",
+        title="工单创建接口调用未定义函数导致NameError",
+        trigger_type="local_log",
+        endpoint="POST /ticket/create",
+        expected_error_type="NameError",
+        expected_behavior="工单创建接口正常返回成功",
+        target_test_command="pytest -q demo_service/tests/test_ticket_contract.py::test_ticket_create_sla8_should_succeed -m agent_target"
     )
 ]
 

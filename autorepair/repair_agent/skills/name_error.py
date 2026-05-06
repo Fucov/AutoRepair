@@ -16,8 +16,10 @@ class NameErrorSkill:
             "NameError 修复策略:\n"
             "1. 判断未定义符号是否应是字符串字面量\n"
             "2. 如果变量名看起来像状态/字符串值，添加引号\n"
-            "3. 不要引入无关变量\n"
-            "4. 检查是否缺少导入语句"
+            "3. 如果是调用了未定义的函数（如 calculate_priority），"
+            "直接用简单表达式替换该调用，或删除该行\n"
+            "4. 不要引入无关变量\n"
+            "5. 检查是否缺少导入语句"
         )
 
     def allowed_files_hint(self, case: RepairCase) -> list[str]:
