@@ -9,6 +9,7 @@ from watchdog.events import FileSystemEventHandler
 logger = logging.getLogger(__name__)
 
 _DEBOUNCE_MS = 500
+_POLL_INTERVAL_SECONDS = 10
 
 
 class _DebouncedHandler(FileSystemEventHandler):
@@ -49,27 +50,72 @@ class FileWatchdog:
     def __init__(self):
         self._observer: Optional[Observer] = None
         self._running = False
+        self._poll_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._last_size: int = 0
+        self._watch_dir: Optional[str] = None
+        self._target_filenames: Optional[set[str]] = None
+        self._callback: Optional[Callable[[], None]] = None
 
     def start(self, watch_dir: str, target_filenames: set[str], callback: Callable[[], None]) -> None:
         if self._running:
             logger.warning("FileWatchdog 已在运行中")
             return
 
+        self._watch_dir = watch_dir
+        self._target_filenames = target_filenames
+        self._callback = callback
+
         handler = _DebouncedHandler(target_filenames, callback)
         self._observer = Observer()
         self._observer.schedule(handler, watch_dir, recursive=False)
         self._observer.daemon = True
         self._observer.start()
+
+        for fname in target_filenames:
+            fpath = Path(watch_dir) / fname
+            if fpath.exists():
+                self._last_size = fpath.stat().st_size
+
+        self._stop_event.clear()
+        self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._poll_thread.start()
+
         self._running = True
-        logger.info(f"FileWatchdog 启动，监听目录: {watch_dir}，目标文件: {target_filenames}")
+        logger.info(f"FileWatchdog 启动，监听目录: {watch_dir}，目标文件: {target_filenames}，轮询间隔: {_POLL_INTERVAL_SECONDS}s")
+
+    def _poll_loop(self):
+        while not self._stop_event.is_set():
+            self._stop_event.wait(_POLL_INTERVAL_SECONDS)
+            if self._stop_event.is_set():
+                break
+            try:
+                for fname in (self._target_filenames or set()):
+                    fpath = Path(self._watch_dir) / fname
+                    if not fpath.exists():
+                        continue
+                    current_size = fpath.stat().st_size
+                    if current_size > self._last_size:
+                        logger.info(f"定期扫描检测到日志文件变化: {fname} ({self._last_size} -> {current_size})")
+                        self._last_size = current_size
+                        try:
+                            self._callback()
+                        except Exception as e:
+                            logger.error(f"定期扫描回调执行失败: {e}", exc_info=True)
+                        break
+            except Exception as e:
+                logger.error(f"定期扫描异常: {e}", exc_info=True)
 
     def stop(self) -> None:
+        self._stop_event.set()
+        if self._poll_thread and self._poll_thread.is_alive():
+            self._poll_thread.join(timeout=3)
         if self._observer and self._running:
             self._observer.stop()
             self._observer.join(timeout=5)
             self._observer = None
-            self._running = False
-            logger.info("FileWatchdog 已停止")
+        self._running = False
+        logger.info("FileWatchdog 已停止")
 
     @property
     def is_running(self) -> bool:

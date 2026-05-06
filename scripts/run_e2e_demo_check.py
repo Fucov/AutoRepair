@@ -99,7 +99,7 @@ def main() -> int:
     except Exception:
         results.append(check("pytest可用", False, "pytest命令执行失败"))
 
-    # 11. 检查 ticket-timezone-sla 主线Bug是否能被正确触发
+    # 11. 检查 ticket-nameerror-overdue 主线Bug是否能被正确触发
     try:
         from demo_service.ticket_service import submit_ticket
         test_payload = {
@@ -107,38 +107,38 @@ def main() -> int:
             "title": "检查主线Bug",
             "priority": "P1",
             "channel": "feishu",
-            "sla_deadline": "2099-01-01T18:00:00+08:00",
+            "sla_deadline": "2020-01-01T00:00:00",
             "idempotency_key": "evt_check_001"
         }
         bug_triggered = False
         bug_type_ok = False
         try:
             submit_ticket(test_payload)
-        except TypeError as e:
+        except NameError as e:
             bug_triggered = True
             error_msg = str(e).lower()
-            if "offset-naive" in error_msg or "offset-aware" in error_msg or "timezone" in error_msg:
+            if "overdue" in error_msg:
                 bug_type_ok = True
         results.append(check(
-            "ticket-timezone-sla主线Bug",
+            "ticket-nameerror-overdue主线Bug",
             bug_triggered and bug_type_ok,
-            "TypeError: can't compare offset-naive and offset-aware datetimes"
+            "NameError: name 'overdue' is not defined"
             if (bug_triggered and bug_type_ok)
-            else ("未触发TypeError" if not bug_triggered else "错误类型不匹配")
+            else ("未触发NameError" if not bug_triggered else "错误类型不匹配")
         ))
     except Exception as e:
-        results.append(check("ticket-timezone-sla主线Bug", False, str(e)))
+        results.append(check("ticket-nameerror-overdue主线Bug", False, str(e)))
 
     # 12. 检查 log_parser 能正确提取主线Bug特征
     try:
         sample_traceback = '''Traceback (most recent call last):
-  File "demo_service/ticket_service.py", line 30, in submit_ticket
-    if deadline < datetime.utcnow():
-TypeError: can't compare offset-naive and offset-aware datetimes'''
+  File "demo_service/ticket_service.py", line 35, in submit_ticket
+    ticket_data["status"] = overdue
+NameError: name 'overdue' is not defined'''
         summary = extract_error_summary(sample_traceback)
         parser_ok = (
             summary is not None
-            and summary.error_type == "TypeError"
+            and summary.error_type == "NameError"
             and "ticket_service.py" in (summary.suspected_file or "")
         )
         results.append(check(

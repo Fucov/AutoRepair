@@ -25,14 +25,14 @@ def trigger_scenario(scenario_id: str) -> bool:
     base_url = "http://127.0.0.1:8000"
     
     try:
-        if scenario.scenario_id == "ticket-timezone-sla":
-            # 触发ticket时区bug
+        if scenario.scenario_id == "ticket-nameerror-overdue":
+            # 触发ticket NameError bug（使用过期的sla_deadline）
             payload = {
                 "customer_id": "c_1001",
-                "title": "紧急工单测试",
+                "title": "过期工单测试",
                 "priority": "P1",
                 "channel": "feishu",
-                "sla_deadline": "2099-01-01T18:00:00+08:00",
+                "sla_deadline": "2020-01-01T00:00:00",
                 "idempotency_key": "evt_test_001"
             }
             response = httpx.post(f"{base_url}/tickets/submit", json=payload)

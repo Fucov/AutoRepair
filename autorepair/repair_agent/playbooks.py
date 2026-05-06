@@ -23,6 +23,9 @@ def try_apply_known_playbook(
     if context.error_type == "UnboundLocalError" and context.suspected_file:
         return _fix_unbound_local_playbook(context, tools)
 
+    if context.error_type == "NameError" and context.suspected_file:
+        return _fix_nameerror_playbook(context, tools)
+
     return None
 
 
@@ -183,6 +186,82 @@ def _fix_unbound_local_playbook(
         ok=False,
         status="test_failed",
         summary=f"Playbook 修复 UnboundLocalError 后测试仍失败",
+        changed_files=[target_file],
+        tests_run=[target_cmd, context.full_test_command],
+        target_test_passed=target_result.ok,
+        full_test_passed=full_result.ok,
+    )
+
+
+def _fix_nameerror_playbook(
+    context: RepairAgentContext,
+    tools: MiniRepairTools,
+) -> RepairAgentResult | None:
+    target_file = context.suspected_file
+    if not target_file:
+        return None
+
+    var_match = re.search(r"name '(\w+)' is not defined", context.error_message or "")
+    if not var_match:
+        return None
+    var_name = var_match.group(1)
+
+    read_result = tools.read_file(target_file)
+    if not read_result.ok:
+        return None
+
+    content = read_result.output
+    lines = content.splitlines()
+    fixed = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('#'):
+            continue
+        if f'"{var_name}"' in line or f"'{var_name}'" in line:
+            continue
+        if var_name not in line:
+            continue
+
+        patterns = [
+            (f"= {var_name}", f'= "{var_name}"'),
+            (f"= {var_name}\n", f'= "{var_name}"\n'),
+        ]
+        for old_pat, new_pat in patterns:
+            if old_pat in line:
+                old_text = line.rstrip()
+                new_text = line.replace(old_pat, new_pat).rstrip()
+                r = tools.apply_replace(target_file, old_text, new_text)
+                if r.ok:
+                    fixed = True
+                    break
+        if fixed:
+            break
+
+    if not fixed:
+        return None
+
+    target_cmd = context.target_test_command or "pytest -q"
+    target_result = tools.run_tests(target_cmd)
+    full_result = tools.run_tests(context.full_test_command)
+
+    if target_result.ok and full_result.ok:
+        diff_result = tools.git_diff()
+        return RepairAgentResult(
+            ok=True,
+            status="fixed",
+            summary=f"Playbook 修复: 将 '{var_name}' 添加引号，解决 NameError",
+            changed_files=[target_file],
+            tests_run=[target_cmd, context.full_test_command],
+            target_test_passed=True,
+            full_test_passed=True,
+            diff=diff_result.output if diff_result.ok else None,
+        )
+
+    return RepairAgentResult(
+        ok=False,
+        status="test_failed",
+        summary=f"Playbook 修复 NameError 后测试仍失败",
         changed_files=[target_file],
         tests_run=[target_cmd, context.full_test_command],
         target_test_passed=target_result.ok,

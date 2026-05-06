@@ -686,10 +686,12 @@ async def long_poll_events(last_event_id: int = 0):
     EVENT_WAITERS.append(future)
 
     try:
-        event = await asyncio.wait_for(future, timeout=30)
-        return {"events": [event], "last_event_id": event["id"]}
+        await asyncio.wait_for(future, timeout=30)
+        new_events = [e for e in EVENT_QUEUE if e["id"] > last_event_id]
+        return {"events": new_events, "last_event_id": new_events[-1]["id"] if new_events else last_event_id}
     except asyncio.TimeoutError:
-        return {"events": [], "last_event_id": last_event_id}
+        new_events = [e for e in EVENT_QUEUE if e["id"] > last_event_id]
+        return {"events": new_events, "last_event_id": new_events[-1]["id"] if new_events else last_event_id}
     finally:
         if future in EVENT_WAITERS:
             EVENT_WAITERS.remove(future)

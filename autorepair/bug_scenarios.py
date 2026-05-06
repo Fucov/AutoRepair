@@ -32,13 +32,13 @@ BUG_SCENARIOS: List[BugScenario] = [
         target_test_command="pytest -q demo_service/tests/test_order_contract.py::test_zero_total_amount_should_return_400 -m agent_target"
     ),
     BugScenario(
-        scenario_id="ticket-timezone-sla",
-        title="带时区 SLA 截止时间导致工单创建失败",
+        scenario_id="ticket-nameerror-overdue",
+        title="过期工单设置状态时缺少引号导致NameError",
         trigger_type="local_log",
         endpoint="POST /tickets/submit",
-        expected_error_type="TypeError",
-        expected_behavior="成功创建工单，返回200",
-        target_test_command="pytest -q demo_service/tests/test_ticket_contract.py::test_timezone_aware_sla_deadline_should_create_ticket -m agent_target"
+        expected_error_type="NameError",
+        expected_behavior="过期工单返回overdue状态",
+        target_test_command="pytest -q demo_service/tests/test_ticket_contract.py::test_expired_sla_deadline_should_return_overdue -m agent_target"
     ),
     BugScenario(
         scenario_id="ticket-idempotency-duplicate",

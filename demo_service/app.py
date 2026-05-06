@@ -83,15 +83,12 @@ async def get_ticket_endpoint(ticket_id: str = Path(..., description="工单ID")
 
 @app.post("/ticket/create")
 async def create_ticket(priority: str = Body(...), sla_hours: Optional[int] = Body(None)):
+    from datetime import datetime, timedelta
     # 模拟工单创建，当sla_hours=8时触发bug
     if sla_hours == 8:
-        # 故意触发时区bug
-        from datetime import datetime, timedelta
-        import pytz
-        tz = pytz.timezone("Asia/Shanghai")
-        deadline = datetime.now(tz) + timedelta(hours=sla_hours)
-        # 故意调用不存在的方法触发异常
-        deadline.invalid_method()
+        # 故意触发NameError: 'calculate' is not defined
+        deadline = datetime.now() + timedelta(hours=sla_hours)
+        priority_level = calculate_priority(deadline)
     return {"status": "success", "ticket_id": "TK-" + str(datetime.now().timestamp()).split('.')[0], "priority": priority}
 
 
