@@ -50,6 +50,11 @@ class RepairJob(BaseModel):
     pr_number: int | None = None
     pr_url: str | None = None
     last_error: str | None = None
+    case_id: str | None = None
+    selected_skills: list[str] = Field(default_factory=list)
+    spec_id: str | None = None
+    validation_summary: str | None = None
+    transcript_path: str | None = None
 
 
 def is_active_status(status: RepairJobStatus | str) -> bool:

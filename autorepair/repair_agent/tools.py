@@ -13,10 +13,25 @@ from autorepair.repair_agent.schemas import ToolResult
 
 
 class MiniRepairTools:
-    def __init__(self, worktree_path: str) -> None:
+    def __init__(
+        self,
+        worktree_path: str,
+        allowed_files: set[str] | None = None,
+        forbidden_files: set[str] | None = None,
+    ) -> None:
         self.worktree_path = worktree_path
         self._read_files: set[str] = set()
         self.finish_reason: str | None = None
+        self.allowed_files = allowed_files
+        self.forbidden_files = forbidden_files or set()
+
+    def _check_write_allowed(self, path: str) -> str | None:
+        if self.allowed_files is not None and path not in self.allowed_files:
+            return f"不允许修改文件 {path}，allowed_files: {sorted(self.allowed_files)}"
+        for forbidden in self.forbidden_files:
+            if path.startswith(forbidden) or forbidden in path:
+                return f"禁止修改文件 {path}（在 forbidden_files 中）"
+        return None
 
     def _rel(self, abs_path: Path) -> str:
         return str(abs_path.relative_to(Path(self.worktree_path))).replace("\\", "/")

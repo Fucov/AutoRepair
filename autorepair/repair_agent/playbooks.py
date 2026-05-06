@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
+from autorepair.repair_agent.repair_case import RepairCase
 from autorepair.repair_agent.schemas import RepairAgentContext, RepairAgentResult
+from autorepair.repair_agent.spec_builder import RepairSpec
 from autorepair.repair_agent.tools import MiniRepairTools
+from autorepair.repair_agent.validator import (
+    ValidationPlan,
+    ValidationResult,
+    run_validation_plan,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +24,8 @@ def try_apply_known_playbook(
     if context.error_message and "timezone" in context.error_message.lower():
         return _fix_timezone_playbook(context, tools)
 
-    if context.error_message and "cannot compare" in context.error_message.lower():
+    msg_lower = (context.error_message or "").lower()
+    if "cannot compare" in msg_lower or "can't compare" in msg_lower:
         if context.suspected_file and "ticket" in context.suspected_file.lower():
             return _fix_timezone_playbook(context, tools)
 
@@ -267,3 +276,58 @@ def _fix_nameerror_playbook(
         target_test_passed=target_result.ok,
         full_test_passed=full_result.ok,
     )
+
+
+def try_apply_skill_backed_playbook(
+    context: RepairAgentContext,
+    tools: MiniRepairTools,
+    repair_case: RepairCase,
+    repair_spec: RepairSpec,
+    skills: list[Any],
+    validation_plan: ValidationPlan,
+) -> RepairAgentResult | None:
+    before_result = run_validation_plan(tools, validation_plan, "before", repair_spec)
+    if before_result.target_ok:
+        return RepairAgentResult(
+            ok=True,
+            status="not_reproducible",
+            summary="Skill-backed Playbook: 目标测试已通过，无法复现问题",
+            tests_run=validation_plan.target_commands,
+            target_test_passed=True,
+        )
+
+    for skill in skills:
+        allowed = set(skill.allowed_files_hint(repair_case))
+        tools.allowed_files = allowed
+
+    rule_result = try_apply_known_playbook(context, tools)
+    if rule_result is None:
+        return None
+
+    after_result = run_validation_plan(tools, validation_plan, "after", repair_spec)
+
+    if after_result.target_ok and after_result.full_ok:
+        return RepairAgentResult(
+            ok=True,
+            status="fixed",
+            summary=f"Skill-backed Playbook 修复成功: {rule_result.summary}",
+            changed_files=rule_result.changed_files,
+            tests_run=validation_plan.target_commands + [validation_plan.full_command],
+            target_test_passed=True,
+            full_test_passed=True,
+            diff=rule_result.diff,
+        )
+
+    if after_result.target_ok:
+        return RepairAgentResult(
+            ok=False,
+            status="test_failed",
+            summary=f"Skill-backed Playbook: 目标通过但全量失败",
+            changed_files=rule_result.changed_files,
+            tests_run=validation_plan.target_commands + [validation_plan.full_command],
+            target_test_passed=True,
+            full_test_passed=False,
+            diff=rule_result.diff,
+        )
+
+    return None

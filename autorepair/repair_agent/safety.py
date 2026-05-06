@@ -25,8 +25,9 @@ def is_sensitive_path(path: str) -> bool:
     path_norm = path.replace("\\", "/")
     if path_norm in (".git", ".env"):
         return True
+    normalized = path_norm if path_norm.startswith("/") else "/" + path_norm
     for pat in SENSITIVE_SUBSTRINGS_IN_PATH:
-        if pat in path_norm:
+        if pat in normalized:
             return True
     name = Path(path).name
     if name in SENSITIVE_FILENAMES:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from autorepair.repair_agent.schemas import RepairAgentContext, ToolResult
 
 TOOL_DESCRIPTIONS = """你拥有以下 8 个工具：
@@ -24,8 +26,16 @@ TOOL_DESCRIPTIONS = """你拥有以下 8 个工具：
 
 def build_repair_agent_system_prompt() -> str:
     return (
-        "你是一个代码修复 Agent。\n"
-        "你的任务是分析错误信息、阅读代码、定位 Bug 并修复它。\n\n"
+        "你是安全的代码修复 Agent。\n"
+        "你的目标不是让报错消失，而是满足 RepairSpec 中的规格要求。\n\n"
+        "核心规则：\n"
+        "1. 只能修改 allowed_files 中列出的文件\n"
+        "2. 默认禁止修改测试文件\n"
+        "3. 不要删除功能，不要绕过测试\n"
+        "4. 优先最小修改\n"
+        "5. 每次修改必须说明满足哪条 postcondition / invariant\n"
+        "6. 如果无法满足规格，调用 finish(needs_human)\n"
+        "7. 输出必须是 JSON ToolCall，不要 markdown\n\n"
         + TOOL_DESCRIPTIONS
     )
 
@@ -34,6 +44,11 @@ def build_initial_user_prompt(
     context: RepairAgentContext,
     test_output: str,
     code_excerpt: str | None = None,
+    repair_case: Any | None = None,
+    repair_spec: Any | None = None,
+    skills: list[Any] | None = None,
+    validation_plan: Any | None = None,
+    history_context: Any | None = None,
 ) -> str:
     parts = [
         f"## 错误信息\n"
@@ -42,6 +57,55 @@ def build_initial_user_prompt(
         f"- 疑似文件: {context.suspected_file or '未知'}\n"
         f"- 疑似行号: {context.line_no or '未知'}",
     ]
+
+    if repair_case:
+        parts.append(
+            f"## RepairCase\n"
+            f"- case_id: {repair_case.case_id}\n"
+            f"- scenario_id: {repair_case.scenario_id or '未知'}\n"
+            f"- bug_type: {repair_case.bug_type}\n"
+            f"- entrypoint: {repair_case.entrypoint or '未知'}\n"
+            f"- expected_behavior: {repair_case.expected_behavior}\n"
+            f"- confidence: {repair_case.confidence}"
+        )
+        parts.append(
+            f"## 文件约束\n"
+            f"- allowed_files: {repair_case.allowed_files}\n"
+            f"- forbidden_files: {repair_case.forbidden_files}\n"
+            f"- target_tests: {repair_case.target_tests}"
+        )
+
+    if repair_spec:
+        parts.append(
+            f"## RepairSpec\n"
+            f"- function_under_repair: {repair_spec.function_under_repair or '未知'}\n"
+            f"- caller_expectation: {repair_spec.caller_expectation}\n"
+            f"- preconditions: {repair_spec.preconditions}\n"
+            f"- postconditions: {repair_spec.postconditions}\n"
+            f"- invariants: {repair_spec.invariants}\n"
+            f"- violation: {repair_spec.violation}"
+        )
+
+    if skills:
+        skill_info = []
+        for skill in skills:
+            skill_info.append(f"- {skill.name}: {skill.prompt_hint(repair_case, repair_spec)}")
+        parts.append("## 选中的 RepairSkill\n" + "\n".join(skill_info))
+
+    if validation_plan:
+        parts.append(
+            f"## ValidationPlan\n"
+            f"- target_commands: {validation_plan.target_commands}\n"
+            f"- full_command: {validation_plan.full_command}"
+        )
+
+    if history_context and history_context.recent_commits:
+        parts.append(
+            f"## Git History\n"
+            f"- file: {history_context.file}\n"
+            f"- recent_commits: {history_context.recent_commits[:5]}\n"
+            f"- last_modifier: {history_context.last_modifier_summary}"
+        )
 
     if context.raw_traceback:
         parts.append(f"## 原始 Traceback\n```\n{context.raw_traceback}\n```")
@@ -88,5 +152,37 @@ def build_next_step_prompt(last_result: ToolResult, current_diff: str | None = N
         else:
             parts.append(f"{last_result.tool} 执行失败: {last_result.error}")
         parts.append("请继续。")
+
+    return "\n\n".join(parts)
+
+
+def build_spec_violation_feedback(
+    failed_command: str,
+    failure_summary: str,
+    violated_spec_item: str,
+    current_diff: str | None,
+    changed_files: list[str],
+    remaining_retries: int,
+) -> str:
+    parts = [
+        "## 测试失败 - 规格违反反馈",
+        f"### 失败命令\n`{failed_command}`",
+        f"### 失败输出\n```\n{failure_summary[:1500]}\n```",
+    ]
+
+    if violated_spec_item:
+        parts.append(f"### 违反的规格\n{violated_spec_item}")
+
+    if current_diff:
+        parts.append(f"### 当前 diff\n```diff\n{current_diff[:3000]}\n```")
+
+    if changed_files:
+        parts.append(f"### 已修改文件\n{changed_files}")
+
+    parts.append(f"### 剩余重试次数\n{remaining_retries}")
+    parts.append(
+        "请仔细分析违反了 RepairSpec 的哪条 postcondition/invariant，"
+        "调整修复策略。如果无法修复，请调用 finish(needs_human)。"
+    )
 
     return "\n\n".join(parts)

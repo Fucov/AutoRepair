@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -60,3 +61,37 @@ class RepairAgentResult(BaseModel):
     diff: str | None = None
     transcript_path: str | None = None
     error: str | None = None
+
+
+class AgentPhase(str, Enum):
+    REPRODUCE = "REPRODUCE"
+    UNDERSTAND = "UNDERSTAND"
+    PLAN = "PLAN"
+    EDIT = "EDIT"
+    VALIDATE = "VALIDATE"
+    FINALIZE = "FINALIZE"
+
+
+PHASE_BUDGETS: dict[AgentPhase, int] = {
+    AgentPhase.REPRODUCE: 1,
+    AgentPhase.UNDERSTAND: 3,
+    AgentPhase.PLAN: 1,
+    AgentPhase.EDIT: 3,
+    AgentPhase.VALIDATE: 3,
+    AgentPhase.FINALIZE: 1,
+}
+
+
+class RepairPlanLite(BaseModel):
+    root_cause: str
+    edit_files: list[str] = Field(default_factory=list)
+    strategy: str
+    spec_items_to_satisfy: list[str] = Field(default_factory=list)
+
+
+class Checkpoint(BaseModel):
+    phase: AgentPhase
+    step_index: int
+    file_snapshots: dict[str, str] = Field(default_factory=dict)
+    diff: str | None = None
+    target_test_passed: bool = False

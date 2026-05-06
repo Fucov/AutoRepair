@@ -7,10 +7,15 @@ from typing import Set
 from pydantic import BaseModel
 from autorepair.adapters.llm_client import LLMClient
 from autorepair.repair_agent.context import build_repair_agent_context
+from autorepair.repair_agent.history_context import collect_history_context
 from autorepair.repair_agent.loop import MiniRepairAgent
-from autorepair.repair_agent.playbooks import try_apply_known_playbook
+from autorepair.repair_agent.playbooks import try_apply_known_playbook, try_apply_skill_backed_playbook
+from autorepair.repair_agent.repair_case import build_repair_case
 from autorepair.repair_agent.schemas import RepairAgentResult
+from autorepair.repair_agent.spec_builder import build_repair_spec
+from autorepair.repair_agent.skills import select_repair_skills
 from autorepair.repair_agent.tools import MiniRepairTools
+from autorepair.repair_agent.validator import build_validation_plan
 from autorepair.adapters.github import (
     find_open_pr_for_branch,
     create_pull_request,
@@ -193,12 +198,47 @@ def execute_next_repair_job() -> RepairExecutionResult:
             agent_context = build_repair_agent_context(job, incident)
             agent_tools = MiniRepairTools(job.worktree_path)
 
-            playbook_result = try_apply_known_playbook(agent_context, agent_tools)
-            agent_result = playbook_result
+            repair_case = build_repair_case(agent_context)
+            repair_spec = build_repair_spec(repair_case, agent_context)
+            selected_skills = select_repair_skills(repair_case, repair_spec)
+            validation_plan = build_validation_plan(repair_case, repair_spec, agent_context)
+            history_context = collect_history_context(
+                job.worktree_path,
+                repair_case.allowed_files,
+                line_no=agent_context.line_no,
+            )
+
+            append_audit_event("spec_guided_context_built", job.incident_id, {
+                "job_id": job.job_id,
+                "case_id": repair_case.case_id,
+                "scenario_id": repair_case.scenario_id,
+                "spec_function": repair_spec.function_under_repair,
+                "skills": [s.name for s in selected_skills],
+                "target_tests": validation_plan.target_commands,
+                "confidence": repair_case.confidence,
+            })
+
+            skill_playbook_result = try_apply_skill_backed_playbook(
+                agent_context, agent_tools,
+                repair_case, repair_spec,
+                selected_skills, validation_plan,
+            )
+            agent_result = skill_playbook_result
+
+            if agent_result is None:
+                playbook_result = try_apply_known_playbook(agent_context, agent_tools)
+                agent_result = playbook_result
 
             if agent_result is None:
                 agent = MiniRepairAgent(llm_client=LLMClient())
-                agent_result = agent.run(agent_context)
+                agent_result = agent.run_spec_guided(
+                    agent_context,
+                    repair_case=repair_case,
+                    repair_spec=repair_spec,
+                    skills=selected_skills,
+                    validation_plan=validation_plan,
+                    history_context=history_context,
+                )
 
             append_audit_event(
                 "agent_repair_completed",
@@ -217,6 +257,14 @@ def execute_next_repair_job() -> RepairExecutionResult:
                 "summary": agent_result.summary,
                 "message": f"Agent 修复完成: {agent_result.status}",
             })
+
+            update_repair_job(
+                job.job_id,
+                case_id=repair_case.case_id,
+                selected_skills=[s.name for s in selected_skills],
+                spec_id=repair_spec.spec_id,
+                validation_summary=f"target={agent_result.target_test_passed}, full={agent_result.full_test_passed}",
+            )
 
             if agent_result.status == "fixed":
                 diff = agent_result.diff or get_git_diff(job.worktree_path)
