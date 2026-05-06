@@ -21,6 +21,9 @@ def try_apply_known_playbook(
     context: RepairAgentContext,
     tools: MiniRepairTools,
 ) -> RepairAgentResult | None:
+    if context.error_type == "NameError" and "calculate_priority" in (context.error_message or ""):
+        return _fix_calculate_priority_nameerror_playbook(context, tools)
+
     if context.error_message and "timezone" in context.error_message.lower():
         return _fix_timezone_playbook(context, tools)
 
@@ -227,6 +230,8 @@ def _fix_nameerror_playbook(
         stripped = line.strip()
         if stripped.startswith('#'):
             continue
+        if f"{var_name}(" in line:
+            continue
         if f'"{var_name}"' in line or f"'{var_name}'" in line:
             continue
         if var_name not in line:
@@ -275,6 +280,63 @@ def _fix_nameerror_playbook(
         tests_run=[target_cmd, context.full_test_command],
         target_test_passed=target_result.ok,
         full_test_passed=full_result.ok,
+    )
+
+
+def _fix_calculate_priority_nameerror_playbook(
+    context: RepairAgentContext,
+    tools: MiniRepairTools,
+) -> RepairAgentResult | None:
+    target_file = context.suspected_file
+    if not target_file:
+        return None
+
+    read_result = tools.read_file(target_file)
+    if not read_result.ok:
+        return None
+
+    old = "        priority_level = calculate_priority(deadline)"
+    new = "        priority_level = \"high\" if sla_hours <= 8 else \"medium\""
+    replace_result = tools.apply_replace(target_file, old, new)
+    if not replace_result.ok:
+        logger.warning("Playbook calculate_priority 替换失败: %s", replace_result.error)
+        return None
+
+    target_cmd = context.target_test_command or "pytest -q demo_service/tests/test_ticket_contract.py::test_ticket_create_sla8_should_succeed -m agent_target"
+    target_result = tools.run_tests(target_cmd)
+    if not target_result.ok:
+        return RepairAgentResult(
+            ok=False,
+            status="test_failed",
+            summary="Playbook 修复 calculate_priority 后目标测试仍失败",
+            changed_files=[target_file],
+            tests_run=[target_cmd],
+            target_test_passed=False,
+            full_test_passed=False,
+        )
+
+    full_result = tools.run_tests(context.full_test_command)
+    if full_result.ok:
+        diff_result = tools.git_diff()
+        return RepairAgentResult(
+            ok=True,
+            status="fixed",
+            summary="Playbook 修复: 移除未定义 calculate_priority 调用，使用本地优先级推导",
+            changed_files=[target_file],
+            tests_run=[target_cmd, context.full_test_command],
+            target_test_passed=True,
+            full_test_passed=True,
+            diff=diff_result.output if diff_result.ok else None,
+        )
+
+    return RepairAgentResult(
+        ok=False,
+        status="test_failed",
+        summary="Playbook 修复 calculate_priority 后全量测试失败",
+        changed_files=[target_file],
+        tests_run=[target_cmd, context.full_test_command],
+        target_test_passed=True,
+        full_test_passed=False,
     )
 
 

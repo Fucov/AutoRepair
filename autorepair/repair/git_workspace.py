@@ -91,12 +91,18 @@ def create_repair_worktree(
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
 
     if worktree_path.exists():
-        return WorktreeInfo(
-            repo_path=str(repo),
-            worktree_path=str(worktree_path),
-            repair_branch=repair_branch,
-            base_branch=base_branch,
-        )
+        try:
+            _run_git(worktree_path, ["reset", "--hard"])
+            _run_git(worktree_path, ["clean", "-fd"])
+            return WorktreeInfo(
+                repo_path=str(repo),
+                worktree_path=str(worktree_path),
+                repair_branch=repair_branch,
+                base_branch=base_branch,
+            )
+        except Exception:
+            shutil.rmtree(worktree_path, ignore_errors=True)
+            _run_git(repo, ["worktree", "prune"])
 
     if _branch_exists(repo, repair_branch):
         _run_git(repo, ["worktree", "add", str(worktree_path), repair_branch])

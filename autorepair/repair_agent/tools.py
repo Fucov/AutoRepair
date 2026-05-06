@@ -137,6 +137,10 @@ class MiniRepairTools:
             return ToolResult(tool="run_tests", ok=False, output="", error=str(e))
 
     def apply_replace(self, path: str, old: str, new: str) -> ToolResult:
+        write_error = self._check_write_allowed(path)
+        if write_error:
+            return ToolResult(tool="apply_replace", ok=False, output="", error=write_error)
+
         if path not in self._read_files:
             return ToolResult(
                 tool="apply_replace", ok=False, output="",
@@ -169,6 +173,10 @@ class MiniRepairTools:
         return ToolResult(tool="apply_replace", ok=True, output="替换成功", changed=True)
 
     def rewrite_file(self, path: str, content: str) -> ToolResult:
+        write_error = self._check_write_allowed(path)
+        if write_error:
+            return ToolResult(tool="rewrite_file", ok=False, output="", error=write_error)
+
         if path not in self._read_files:
             return ToolResult(
                 tool="rewrite_file", ok=False, output="",

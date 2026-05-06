@@ -195,13 +195,25 @@ def execute_next_repair_job() -> RepairExecutionResult:
                     failure_type=failure_type, failure_report=failure_report,
                 )
 
-            agent_context = build_repair_agent_context(job, incident)
-            agent_tools = MiniRepairTools(job.worktree_path)
-
+            agent_context = build_repair_agent_context(job, incident, service=service)
+            if context.target_test_command:
+                agent_context = agent_context.model_copy(update={
+                    "target_test_command": context.target_test_command,
+                    "full_test_command": context.full_test_command,
+                })
             repair_case = build_repair_case(agent_context)
+            agent_tools = MiniRepairTools(
+                job.worktree_path,
+                allowed_files=set(repair_case.allowed_files),
+                forbidden_files=set(repair_case.forbidden_files),
+            )
             repair_spec = build_repair_spec(repair_case, agent_context)
             selected_skills = select_repair_skills(repair_case, repair_spec)
             validation_plan = build_validation_plan(repair_case, repair_spec, agent_context)
+            if validation_plan.target_commands:
+                agent_context = agent_context.model_copy(update={
+                    "target_test_command": validation_plan.target_commands[0],
+                })
             history_context = collect_history_context(
                 job.worktree_path,
                 repair_case.allowed_files,

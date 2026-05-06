@@ -50,6 +50,15 @@ BUG_SCENARIOS: List[BugScenario] = [
         target_test_command="pytest -q demo_service/tests/test_ticket_contract.py::test_duplicate_idempotency_key_should_not_create_two_tickets -m agent_target"
     ),
     BugScenario(
+        scenario_id="ticket-timezone-sla",
+        title="带时区 SLA 截止时间导致工单创建失败",
+        trigger_type="github_issue",
+        endpoint="POST /tickets/submit",
+        expected_error_type="TypeError",
+        expected_behavior="带时区 SLA deadline 的工单应正常创建",
+        target_test_command="pytest -q demo_service/tests/test_ticket_contract.py::test_future_sla_deadline_should_return_open -m agent_target"
+    ),
+    BugScenario(
         scenario_id="app-ticket-create-nameerror",
         title="工单创建接口调用未定义函数导致NameError",
         trigger_type="local_log",

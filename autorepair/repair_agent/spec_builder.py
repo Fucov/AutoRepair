@@ -108,6 +108,24 @@ _SPEC_TEMPLATES: dict[str, dict[str, Any]] = {
         ],
         "violation": "代码中 status = overdue 缺少引号，overdue 作为变量名未定义导致 NameError"
     },
+    "app-ticket-create-nameerror": {
+        "function_under_repair": "create_ticket",
+        "caller_expectation": "POST /ticket/create 在 sla_hours=8 时应正常创建工单并返回 success",
+        "preconditions": [
+            "priority 是请求中的优先级字符串",
+            "sla_hours 可以是整数，sla_hours=8 是有效输入"
+        ],
+        "postconditions": [
+            "sla_hours=8 时接口返回 HTTP 200",
+            "响应 status 为 success",
+            "不调用未定义函数，不抛 NameError"
+        ],
+        "invariants": [
+            "不得为了消除异常而删除工单创建响应",
+            "不得修改测试来绕过接口行为"
+        ],
+        "violation": "create_ticket 调用了未定义函数 calculate_priority(deadline)，导致 NameError"
+    },
     "order-zero-division": {
         "function_under_repair": "calculate_order_discount",
         "caller_expectation": "calculate_order_discount 在 total_amount <= 0 时返回业务错误，而非抛异常",

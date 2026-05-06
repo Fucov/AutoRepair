@@ -390,9 +390,13 @@ class MiniRepairAgent:
     def _save_checkpoint(tools: MiniRepairTools, phase: AgentPhase, step_idx: int, allowed_files: list[str]) -> Checkpoint:
         snapshots: dict[str, str] = {}
         for f in allowed_files:
-            r = tools.read_file(f)
-            if r.ok:
-                snapshots[f] = r.output
+            target = Path(tools.worktree_path) / f
+            try:
+                if target.exists() and target.is_file():
+                    snapshots[f] = target.read_text(encoding="utf-8")
+                    tools.read_file(f)
+            except Exception:
+                logger.warning("保存 checkpoint 失败: %s", f)
         diff_r = tools.git_diff()
         return Checkpoint(
             phase=phase,
@@ -405,6 +409,7 @@ class MiniRepairAgent:
     def _rollback_checkpoint(tools: MiniRepairTools, checkpoint: Checkpoint, allowed_files: list[str]) -> None:
         for f in allowed_files:
             if f in checkpoint.file_snapshots:
+                tools.read_file(f)
                 tools.rewrite_file(f, checkpoint.file_snapshots[f])
 
     def _call_llm(self, messages: list[dict[str, str]]) -> ToolCall:

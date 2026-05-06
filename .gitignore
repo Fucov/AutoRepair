@@ -13,3 +13,4 @@ docs/superpowers
 *.json
 *.jsonl
 records/
+tmp*/

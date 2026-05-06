@@ -18,7 +18,17 @@ def build_repair_agent_context(
     if worktree_path:
         worktree_path = worktree_path.replace("\\", "/")
 
-    suspected_file = getattr(incident, "suspected_file", None) or getattr(job, "suspected_file", None)
+    error_summary = getattr(incident, "error_summary", None)
+    if error_summary:
+        error_type = getattr(error_summary, "error_type", None)
+        error_message = getattr(error_summary, "message", None)
+        suspected_file = getattr(error_summary, "suspected_file", None) or getattr(job, "suspected_file", None)
+        line_no = getattr(error_summary, "line_no", None)
+    else:
+        error_type = getattr(incident, "error_type", None)
+        error_message = getattr(incident, "error_message", None)
+        suspected_file = getattr(incident, "suspected_file", None) or getattr(job, "suspected_file", None)
+        line_no = getattr(incident, "line_no", None)
 
     return RepairAgentContext(
         job_id=getattr(job, "job_id", ""),
@@ -27,10 +37,10 @@ def build_repair_agent_context(
         service_name=getattr(incident, "service_name", None) or getattr(incident, "service", "unknown") or "unknown",
         worktree_path=worktree_path,
         repo_path=getattr(incident, "repo_path", ""),
-        error_type=getattr(incident, "error_type", None),
-        error_message=getattr(incident, "error_message", None),
+        error_type=error_type,
+        error_message=error_message,
         suspected_file=suspected_file,
-        line_no=getattr(incident, "line_no", None),
+        line_no=line_no,
         raw_traceback=getattr(incident, "raw_traceback", None),
         issue_body=getattr(incident, "issue_body", None),
         target_test_command=target_test,

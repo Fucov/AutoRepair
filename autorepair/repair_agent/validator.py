@@ -44,14 +44,14 @@ def build_validation_plan(
 ) -> ValidationPlan:
     target_cmds = []
     for test in case.target_tests:
-        target_cmds.append(f"pytest -q {test}")
+        target_cmds.append(_pytest_command(test, include_agent_target=True))
 
     if not target_cmds and context.target_test_command:
         target_cmds = [context.target_test_command]
 
     related_cmds = []
     for test in case.regression_tests:
-        related_cmds.append(f"pytest -q {test}")
+        related_cmds.append(_pytest_command(test, include_agent_target=True))
 
     return ValidationPlan(
         reproduce_command=target_cmds[0] if target_cmds else None,
@@ -59,6 +59,13 @@ def build_validation_plan(
         related_commands=related_cmds,
         full_command=context.full_test_command or "pytest -q",
     )
+
+
+def _pytest_command(test: str, include_agent_target: bool = False) -> str:
+    command = f"pytest -q {test}"
+    if include_agent_target and "-m " not in command:
+        command += " -m agent_target"
+    return command
 
 
 def run_validation_plan(
