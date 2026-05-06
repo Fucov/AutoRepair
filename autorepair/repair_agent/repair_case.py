@@ -114,7 +114,7 @@ def _infer_allowed_files(scenario_id: str | None, suspected_file: str) -> list[s
 
     if suspected_file:
         if suspected_file == "demo_service/app.py":
-            return ["demo_service/service.py", "demo_service/order_service.py", "demo_service/ticket_service.py"]
+            return ["demo_service/app.py", "demo_service/service.py", "demo_service/order_service.py", "demo_service/ticket_service.py"]
         return [suspected_file]
     return []
 

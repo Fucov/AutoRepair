@@ -72,7 +72,7 @@ def test_build_case_app_py_redirect():
     case = build_repair_case(ctx)
     assert case.confidence < 0.5
     assert len(case.allowed_files) > 0
-    assert "demo_service/app.py" not in case.allowed_files
+    assert "demo_service/app.py" in case.allowed_files
 
 
 def test_build_case_forbidden_files_default():
