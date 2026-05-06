@@ -87,7 +87,7 @@ async def create_ticket(priority: str = Body(...), sla_hours: Optional[int] = Bo
     # 模拟工单创建，当sla_hours=8时触发bug
     if sla_hours == 8:
         deadline = datetime.now() + timedelta(hours=sla_hours)
-        priority_level = calculate_priority(deadline)
+        priority_level = priority
     return {"status": "success", "ticket_id": "TK-" + str(datetime.now().timestamp()).split('.')[0], "priority": priority}
 
 
